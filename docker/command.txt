@@ -1,0 +1,9 @@
+docker build -t tf-jupyter-mi:v1 .
+
+
+docker run --gpus all -it --name my_test -p 8888:8888 -v "C:/Users/David/Desktop/cosas/ual/TFM:/tf" tf-jupyter-mi:v1
+
+
+docker start -ai my_test
+
+
