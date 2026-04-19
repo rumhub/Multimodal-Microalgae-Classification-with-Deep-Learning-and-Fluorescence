@@ -7,7 +7,10 @@ from sklearn.model_selection import train_test_split
 
 class DataAnalysis:
     def __init__(self):
-        pass
+        self.channel_names = [value for name, value in vars(config.Channels).items() if not name.startswith("__")]
+        self.channel_limits = None
+        self.global_channel_limits = None
+    
     
     '''
     @brief: Calculates and stores information about each microalga
@@ -438,6 +441,180 @@ class DataAnalysis:
                         # Show general information about current channel
                         channel_data = self.get_channel(class_data, channel_name)
                         self.show_histogram(channel_data_filtered, f"Distribution of {channel_name} in class {config.CLASS_NAMES[current_class]} after filtering", channel_name, "Frecuency")
+                        self.describe_channel(channel_data_filtered, f"------------ {channel_name} DESCRIPTION AFTER FILTERING ------------")
+            
+        return data
+    
+    
+    '''
+    @brief: Calculates limits for each class and channel
+    @param data: Data to calculate limits from (should be training, not validation or test)
+    @param p_low: low percentile to be used
+    @param p_high: high percentile to be used
+    '''
+    def compute_channel_limits(self, data, p_low=1, p_high=95):
+        
+        limits = {}
+        
+        # For each class
+        for class_prefix, class_id in config.CLASS_PREFIXES.items():
+            
+            # Get data for current class
+            class_data = {}
+            
+            for img_name, fields in data.items():
+                if fields.get("class") == class_id:
+                    class_data[img_name] = fields
+            
+            # Skip if no data for this class
+            if not class_data:
+                continue
+            
+            limits[class_id] = {}
+            
+            # For each channel
+            for channel in self.channel_names:
+                
+                # Get channel data
+                channel_data = self.get_channel(class_data, channel)
+                
+                if channel_data is None or len(channel_data) == 0:
+                    continue
+                
+                # Calculate percentiles
+                low = np.percentile(channel_data, p_low)
+                high = np.percentile(channel_data, p_high)
+                
+                # Store limits
+                limits[class_id][channel] = {
+                    "min": float(low),
+                    "max": float(high)
+                }
+        
+        self.channel_limits = limits
+        
+        # Calculate global limits
+        self.compute_global_channel_limits()
+    
+    
+    '''
+    @brief: Calculates global limits for each channel
+    '''
+    def compute_global_channel_limits(self):
+        
+        global_limits = {}
+        
+        # For each channel
+        for channel in self.channel_names:
+            mins = []
+            maxs = []
+            
+            for class_id in self.channel_limits:
+                if channel in self.channel_limits[class_id]:
+                    mins.append(self.channel_limits[class_id][channel]["min"])
+                    maxs.append(self.channel_limits[class_id][channel]["max"])
+            
+            if len(mins) == 0 or len(maxs) == 0:
+                continue
+            
+            global_limits[channel] = {
+                "min": min(mins),
+                "max": max(maxs)
+            }
+        
+        self.global_channel_limits = global_limits
+    
+    '''
+    @brief: Cleans the data, clean outliers and artifacts that are not microalgae
+    @param data: Data to be cleaned
+    
+    '''
+    def global_filtering(self, data, debug = 0):
+        
+        # ---------------------------------------
+        # ---------- Special filtering ----------
+        # ---------------------------------------
+
+        # ----- Remove data with mask area of 0  -----
+        # Create a copy of the original data (list of img paths)
+        img_names = list(data.keys())
+        
+        for img_name in img_names:
+            # Avoid KeyError if img doesn't have channel channel_name
+            value = data[img_name].get(config.Channels.MASK_AREA)
+
+            # Remove negative and 0 values
+            if value is None or value <= 0.001:
+                del data[img_name]
+
+        # ---------------------------------------
+        # ---------- Common filtering ----------
+        # ---------------------------------------
+        
+        # ---------- Remove data outside percentiles ----------
+        imgs_to_remove = set()
+    
+        # For each calculated channel (mask_area, mask_perimeter, etc)
+        for channel_name in self.channel_names:
+
+            # Ensure channel exists
+            if channel_name not in self.global_channel_limits:
+                continue
+
+            # Calculate percentiles per channel
+            p_low = self.global_channel_limits[channel_name]["min"]
+            p_high = self.global_channel_limits[channel_name]["max"]
+
+            # Filter data outside percentiles
+            for img_name, fields in data.items():
+                # Avoid KeyError if img doesn't have channel channel_name
+                value = fields.get(channel_name)
+                
+                if value is not None and (value < p_low or value > p_high):
+                    imgs_to_remove.add(img_name)
+            
+           
+        # Create a copy of the data before filtering
+        if debug == 1:
+            data_copy = copy.deepcopy(data)
+       
+        # Remove images
+        for img in imgs_to_remove:
+            if img in data:
+                del data[img]
+                
+        # ------------------------------------------------------
+        # -------- Show information after filtering ------------
+        # ------------------------------------------------------
+        if debug == 1:
+            for class_prefix in config.CLASS_PREFIXES: # For each class or microalga type
+                class_data = {}
+                class_data_filtered = {}
+
+                # Get images per class
+                for img_name, fields in data.items():
+                    if fields.get("class") == config.CLASS_PREFIXES[class_prefix]:
+                        class_data_filtered[img_name] = fields
+               
+                # Get images per class
+                for img_name, fields in data_copy.items():
+                    if fields.get("class") == config.CLASS_PREFIXES[class_prefix]:
+                        class_data[img_name] = fields 
+               
+                # For each calculated channel (mask_area, mask_perimeter, etc)
+                for channel_name in self.channel_names:
+    
+                    # Get all the data for a determined channel
+                    channel_data = self.get_channel(class_data, channel_name)
+                    channel_data_filtered = self.get_channel(class_data_filtered, channel_name)
+                    
+                    if channel_data is not None and len(channel_data) > 0:
+                        # Show general information about current channel
+                        self.show_histogram(channel_data, f"Distribution of {channel_name} in class {config.CLASS_NAMES[class_prefix]} before filtering", channel_name, "Frecuency")
+                        self.describe_channel(channel_data, f"------------ {channel_name} DESCRIPTION BEFORE FILTERING ------------")
+                        
+                        # Show general information about current channel
+                        self.show_histogram(channel_data_filtered, f"Distribution of {channel_name} in class {config.CLASS_NAMES[class_prefix]} after filtering", channel_name, "Frecuency")
                         self.describe_channel(channel_data_filtered, f"------------ {channel_name} DESCRIPTION AFTER FILTERING ------------")
             
         return data

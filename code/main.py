@@ -19,8 +19,11 @@ def main():
     # Split global data into training, validation, and test
     train_data, val_data, test_data = data_analysis.split_train_val_test(img_paths)
     
+    # Calculate percentiles
+    data_analysis.compute_channel_limits(train_data, p_low=1, p_high=95)
+
     # Clean training data
-    train_data = data_analysis.clean_data(train_data, debug=1)
+    train_data = data_analysis.global_filtering(train_data, debug=1)
     
 
     # --- Export to cv ---
