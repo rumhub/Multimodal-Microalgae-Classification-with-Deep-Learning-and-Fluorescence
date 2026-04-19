@@ -4,7 +4,7 @@ from classes.csv_writer import CSVWriter
 
 def main():
     # --- Read data ---
-    data_reader = DataReader("../datos_cultivos")
+    data_reader = DataReader("../images")
     
     # Read data
     img_paths = data_reader.read_data()

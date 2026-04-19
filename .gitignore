@@ -2,21 +2,15 @@
 __pycache__/
 *.pyc
 
-# Jupyter
-.ipynb_checkpoints/
-
 # Envs
 .env
 .venv
-.virtual_documents/
 
 # Data
-datos_cultivos/
+images/
 data_info/
 
 # Heavy files
 *.pdf
 *.zip
 
-# Other
-antiguo/
