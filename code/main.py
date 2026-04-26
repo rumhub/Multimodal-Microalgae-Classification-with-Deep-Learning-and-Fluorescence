@@ -20,7 +20,8 @@ def main():
     train_data, val_data, test_data = data_analysis.split_train_val_test(img_paths)
     
     # Calculate percentiles
-    data_analysis.compute_channel_limits(train_data, p_low=1, p_high=95)
+    data_analysis.compute_limits_per_class(train_data, p_low=10, p_high=90)
+    data_analysis.compute_global_limits(train_data, p_low=5, p_high=95)
 
     # Clean training data
     train_data = data_analysis.global_filtering(train_data, debug=1)

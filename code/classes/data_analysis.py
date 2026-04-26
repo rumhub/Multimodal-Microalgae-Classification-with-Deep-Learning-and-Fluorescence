@@ -32,7 +32,7 @@ class DataAnalysis:
         #   - MASK_COMPACTNESS          : How close is to a compact form
         #   - MASK_ELONGATION           : How elongated the object is
         #   - MASK_RECT_AREA            : Area of the minimun bounding box that encloses the object
-        #   x MASK_EXTENT               : Relation between real area and bounding box
+        #   - MASK_EXTENT               : Relation between real area and bounding box
         #   - MASK_EQUICIRCDIAMETER     : Diameter of the circle with the same area
         #   - MASK_LENGTH               : Maximum length of the object
         #   - MASK_THICKNESS            : Average thickness of the object
@@ -49,6 +49,7 @@ class DataAnalysis:
         for img_name, fields in img_paths.items():
             # Read mask channel
             mask = self.read_mask_img(fields["mask"])
+            red_fluor = self.read_red_fluor_img(fields["flr_1"])
             
             # Calculate mask contours
             mask_contours = self.calculate_mask_contours(mask)
@@ -58,8 +59,8 @@ class DataAnalysis:
             img_paths[img_name][config.Channels.MASK_PERIMETER] = self.calculate_mask_perimeter(mask, mask_contours)
             img_paths[img_name][config.Channels.MASK_CIRCULARITY] = self.calculate_mask_circularity(img_paths[img_name][config.Channels.MASK_AREA], img_paths[img_name][config.Channels.MASK_PERIMETER])
             img_paths[img_name][config.Channels.MASK_SOLIDITY] = self.calculate_mask_solidity(mask, mask_contours)
-            img_paths[img_name][config.Channels.MASK_ASPECTRATIO] = self.calculate_mask_aspectratio(mask, mask_contours)
-            img_paths[img_name][config.Channels.MASK_EXTENT] = self.calculate_mask_extent(mask, mask_contours)
+            img_paths[img_name][config.Channels.MASK_ASPECTRATIO] = self.calculate_mask_aspectratio(mask)
+            img_paths[img_name][config.Channels.MEAN_FLUORESCENCE] = self.calculate_mean_fluorescence(red_fluor, mask)
 
 
             # print(f"Microalga: {img_name}")
@@ -117,6 +118,17 @@ class DataAnalysis:
         
         return binary
         
+    def read_red_fluor_img(self, img_path):
+        # Read fluorescence image in color
+        img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+    
+        if img is None:
+            return None
+    
+        # OpenCV uses BGR: channel 2 is red
+        return img[:, :, 2]
+
+    
     def calculate_mask_contours(self, mask_img):
         # Extract contours from the binary mask
         # RETR_EXTERNAL ensures that only the outer boundary of the object is detected -> holes inside the object are ignored
@@ -151,59 +163,49 @@ class DataAnalysis:
         return perimeter_px * config.PIXEL_SIZE
     
     def calculate_mask_circularity(self, area, perimeter):
-        try:
-            # Transform to float
-            area = float(area)
-            perimeter = float(perimeter)
-    
-            # Validate input
-            if perimeter <= 0 or area <= 0:
-                return 0.0
-            
-            # Sources: 
-            #   - https://math.stackexchange.com/questions/3496557/calculating-circularity
-            #   - https://en.wikipedia.org/wiki/Roundness
-            circularity = (perimeter ** 2) / (4 * np.pi * area)
-    
-            # Avoid NaN or infinite values
-            if not np.isfinite(circularity):
-                return 0.0
-    
-            return circularity
-    
-        except (TypeError, ValueError):
+        
+        # Transform to float
+        area = float(area)
+        perimeter = float(perimeter)
+
+        # Validate input
+        if perimeter <= 0 or area <= 0:
             return 0.0
+        
+        # Sources: 
+        #   - https://math.stackexchange.com/questions/3496557/calculating-circularity
+        #   - https://en.wikipedia.org/wiki/Roundness
+        circularity = (4 * np.pi * area) / (perimeter ** 2)
+
+        return circularity
     
     
     def calculate_mask_solidity(self, mask_img, contours):
-        try:
-            if not contours:
-                return 0.0
-    
-            # Use the largest contour
-            cnt = max(contours, key=cv2.contourArea)
-    
-            area = cv2.contourArea(cnt)
-            if area <= 0:
-                return 0.0
-    
-            hull = cv2.convexHull(cnt)
-            hull_area = cv2.contourArea(hull)
-            if hull_area <= 0:
-                return 0.0
-    
-            solidity = area / hull_area
-    
-            # Avoid NaN/inf
-            if not np.isfinite(solidity):
-                return 0.0
-    
-            return float(solidity)
-    
-        except Exception:
+        if not contours:
             return 0.0
+
+        # Use the largest contour
+        cnt = max(contours, key=cv2.contourArea)
+
+        area = cv2.contourArea(cnt)
+        if area <= 0:
+            return 0.0
+
+        hull = cv2.convexHull(cnt)
+        hull_area = cv2.contourArea(hull)
+        if hull_area <= 0:
+            return 0.0
+
+        solidity = area / hull_area
+
+        # Avoid NaN/inf
+        if not np.isfinite(solidity):
+            return 0.0
+
+        return float(solidity)
     
-    def calculate_mask_aspectratio(self, mask_img, contours=None):
+    
+    def calculate_mask_aspectratio(self, mask_img):
         try:
             if mask_img is None:
                 return 0.0
@@ -223,7 +225,6 @@ class DataAnalysis:
             # The aspect ratio of a geometric shape is the ratio of its sizes in different dimensions. 
             # For example, the aspect ratio of a rectangle is the ratio of its longer side to its shorter 
             # side—the ratio of width to height,[1][2] when the rectangle is oriented as a "landscape".
-            # Source: https://en.wikipedia.org/wiki/Aspect_ratio
             ar = min(w, h) / max(w, h)    # <= 1
     
             if not np.isfinite(ar):
@@ -233,39 +234,38 @@ class DataAnalysis:
     
         except Exception:
             return 0.0
-        
-    def calculate_mask_extent(self, mask_img, contours):
-        try:
-            if mask_img is None:
-                return 0.0
+
+    '''
+    @brief: Computes mean fluorescence inside the microalgae mask
     
-            area_px = cv2.countNonZero(mask_img)
-            if area_px <= 0:
-                return 0.0
+    @param fluor_img: Fluorescence image (grayscale or single channel)
+    @param mask_img: Binary mask of the microalga
+    @param dilate: Whether to dilate the mask (recommended if fluorescence is more diffuse)
+     param kernel_size: Size of dilation kernel
+     
+    @return: Mean fluorescence value
+    '''
+    def calculate_mean_fluorescence(self, fluor_img, mask_img, dilate=True, kernel_size=3):
     
-            pts = cv2.findNonZero(mask_img)
-            if pts is None:
-                return 0.0
-    
-            x, y, w, h = cv2.boundingRect(pts)  # axis-aligned bbox in pixel grid
-            box_area = float(w * h)
-            if box_area <= 0:
-                return 0.0
-    
-            extent = area_px / box_area  # <= 1 always
-    
-            if not np.isfinite(extent):
-                return 0.0
-    
-            # Por seguridad numérica (no debería hacer falta, pero nunca sobra)
-            if extent > 1.0:
-                extent = 1.0
-    
-            return float(extent)
-    
-        except Exception:
+        if fluor_img is None or mask_img is None:
             return 0.0
     
+        # Ensure mask is binary
+        mask = (mask_img > 0).astype(np.uint8)
+    
+        # Optional dilation to capture more fluorescence signal
+        if dilate:
+            kernel = np.ones((kernel_size, kernel_size), np.uint8)
+            mask = cv2.dilate(mask, kernel, iterations=1)
+    
+        # Extract fluorescence values inside mask
+        values = fluor_img[mask > 0]
+    
+        if values.size == 0:
+            return 0.0
+    
+        return float(np.mean(values))
+ 
     
     '''
     @brief: Gets all microalgae data for a determined metric name
@@ -452,7 +452,7 @@ class DataAnalysis:
     @param p_low: low percentile to be used
     @param p_high: high percentile to be used
     '''
-    def compute_channel_limits(self, data, p_low=1, p_high=95):
+    def compute_limits_per_class(self, data, p_low=1, p_high=95):
         
         limits = {}
         
@@ -493,35 +493,36 @@ class DataAnalysis:
         
         self.channel_limits = limits
         
-        # Calculate global limits
-        self.compute_global_channel_limits()
-    
     
     '''
     @brief: Calculates global limits for each channel
+    @param data: Data to calculate limits from (should be training, not validation or test)
+    @param p_low: low percentile to be used
+    @param p_high: high percentile to be used
     '''
-    def compute_global_channel_limits(self):
-        
+    def compute_global_limits(self, data, p_low=1, p_high=99):
+    
         global_limits = {}
-        
+    
         # For each channel
         for channel in self.channel_names:
-            mins = []
-            maxs = []
-            
-            for class_id in self.channel_limits:
-                if channel in self.channel_limits[class_id]:
-                    mins.append(self.channel_limits[class_id][channel]["min"])
-                    maxs.append(self.channel_limits[class_id][channel]["max"])
-            
-            if len(mins) == 0 or len(maxs) == 0:
+    
+            # Get channel data from all training samples
+            channel_data = self.get_channel(data, channel)
+    
+            if channel_data is None or len(channel_data) == 0:
                 continue
-            
+    
+            # Calculate percentiles globally
+            low = np.percentile(channel_data, p_low)
+            high = np.percentile(channel_data, p_high)
+    
+            # Store limits
             global_limits[channel] = {
-                "min": min(mins),
-                "max": max(maxs)
+                "min": float(low),
+                "max": float(high)
             }
-        
+    
         self.global_channel_limits = global_limits
     
     '''
@@ -561,7 +562,7 @@ class DataAnalysis:
             if channel_name not in self.global_channel_limits:
                 continue
 
-            # Calculate percentiles per channel
+            # Get percentiles per channel
             p_low = self.global_channel_limits[channel_name]["min"]
             p_high = self.global_channel_limits[channel_name]["max"]
 
