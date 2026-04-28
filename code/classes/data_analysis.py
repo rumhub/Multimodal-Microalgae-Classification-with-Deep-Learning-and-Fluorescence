@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 import copy
+import pandas as pd
 from sklearn.model_selection import train_test_split
 
 class DataAnalysis:
@@ -49,7 +50,11 @@ class DataAnalysis:
         for img_name, fields in img_paths.items():
             # Read mask channel
             mask = self.read_mask_img(fields["mask"])
-            red_fluor = self.read_red_fluor_img(fields["flr_1"])
+            fluor_1 = self.read_red_fluor_img(fields["flr_1"])
+            fluor_2 = self.read_red_fluor_img(fields["flr_2"])
+            fluor_3 = self.read_red_fluor_img(fields["flr_3"])
+            fluor = self.read_red_fluor_img(fields["flu"])
+
             
             # Calculate mask contours
             mask_contours = self.calculate_mask_contours(mask)
@@ -60,14 +65,148 @@ class DataAnalysis:
             img_paths[img_name][config.Channels.MASK_CIRCULARITY] = self.calculate_mask_circularity(img_paths[img_name][config.Channels.MASK_AREA], img_paths[img_name][config.Channels.MASK_PERIMETER])
             img_paths[img_name][config.Channels.MASK_SOLIDITY] = self.calculate_mask_solidity(mask, mask_contours)
             img_paths[img_name][config.Channels.MASK_ASPECTRATIO] = self.calculate_mask_aspectratio(mask)
-            img_paths[img_name][config.Channels.MEAN_FLUORESCENCE] = self.calculate_mean_fluorescence(red_fluor, mask)
+            
+            img_paths[img_name][config.Channels.MEAN_FLUORESCENCE_FLU1] = self.calculate_mean_fluorescence(fluor_1, mask)
+            img_paths[img_name][config.Channels.MEAN_FLUORESCENCE_FLU2] = self.calculate_mean_fluorescence(fluor_2, mask)
+            img_paths[img_name][config.Channels.MEAN_FLUORESCENCE_FLU3] = self.calculate_mean_fluorescence(fluor_3, mask)
+            img_paths[img_name][config.Channels.MEAN_FLUORESCENCE_FLU] = self.calculate_mean_fluorescence(fluor, mask)
+            
+            img_paths[img_name][config.Channels.FLUORESCENT_AREA_RATIO_FLU1] = self.calculate_fluorescent_area_ratio(fluor_1)
+            img_paths[img_name][config.Channels.FLUORESCENT_AREA_RATIO_FLU2] = self.calculate_fluorescent_area_ratio(fluor_2)
+            img_paths[img_name][config.Channels.FLUORESCENT_AREA_RATIO_FLU3] = self.calculate_fluorescent_area_ratio(fluor_3)
+            img_paths[img_name][config.Channels.FLUORESCENT_AREA_RATIO_FLU] = self.calculate_fluorescent_area_ratio(fluor)
+
 
 
             # print(f"Microalga: {img_name}")
             # print(f"Field: {field}")
         return img_paths
             
+    
+    '''
+    @brief: Plot all channels of a microalga
+    @param img_paths: Dictionary containing all microalgae
+    @param idx: Number of the microalgae to show
+    '''
+    def plot_microalga_channels(self, img_paths, idx=0):
+        
+        # Get indexes
+        keys = list(img_paths.keys())
+        
+        if idx >= len(keys):
+            raise ValueError(f"Index {idx} out of range. Total microalgae: {len(keys)}")
+        
+        # Get micrcoalga name from its index
+        name = keys[idx]
+        microalga = img_paths[name]
+        
+        # Channels only (exclude class)
+        channels = [ch for ch in config.IMG_SUFFIXES if ch != "class"]
+    
+        # Get microalga's class name
+        class_name = list(config.CLASS_NAMES.values())[microalga["class"]]
+    
+        # Plot channels of current microalga
+        fig, axes = plt.subplots(1, len(channels), figsize=(4 * len(channels), 4))
+    
+        if len(channels) == 1:
+            axes = [axes]
+    
+        for ax, ch in zip(axes, channels):
+            img = cv2.imread(str(microalga[ch]), cv2.IMREAD_UNCHANGED)
+        
+            if img is None:
+                continue
+        
+            if len(img.shape) == 3:  # color
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                ax.imshow(img)
+            else:  # grayscale
+                ax.imshow(img, cmap="gray")
+        
+            ax.set_title(ch)
+            ax.axis("off")
+    
+        plt.suptitle(f"{name} | Class: {class_name}")
+        plt.tight_layout()
+        plt.show()
+    
             
+    def plot_fluorescence_correlation(self, img_paths):
+        cols = [
+            config.Channels.MEAN_FLUORESCENCE_FLU1,
+            config.Channels.MEAN_FLUORESCENCE_FLU2,
+            config.Channels.MEAN_FLUORESCENCE_FLU3,
+            config.Channels.MEAN_FLUORESCENCE_FLU,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU1,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU2,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU3,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU,
+        ]
+    
+        data = []
+        for _, fields in img_paths.items():
+            row = {}
+            for col in cols:
+                if col in fields:
+                    row[col] = fields[col]
+            if len(row) == len(cols):
+                data.append(row)
+    
+        df = pd.DataFrame(data)
+        corr = df.corr()
+    
+        plt.figure(figsize=(7, 6))
+        plt.imshow(corr, interpolation="nearest")
+        plt.colorbar()
+        plt.xticks(range(len(cols)), cols, rotation=45, ha="right")
+        plt.yticks(range(len(cols)), cols)
+        plt.title("Correlation matrix of fluorescence channels")
+        plt.tight_layout()
+        plt.show()
+    
+        print(corr)
+        return corr
+    
+    def print_fluorescence_summary(self, img_paths):
+        cols = [
+            config.Channels.MEAN_FLUORESCENCE_FLU1,
+            config.Channels.MEAN_FLUORESCENCE_FLU2,
+            config.Channels.MEAN_FLUORESCENCE_FLU3,
+            config.Channels.MEAN_FLUORESCENCE_FLU,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU1,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU2,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU3,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU,
+        ]
+    
+        data = []
+        for _, fields in img_paths.items():
+            row = {}
+            for col in cols:
+                if col in fields:
+                    row[col] = fields[col]
+            if len(row) == len(cols):
+                data.append(row)
+    
+        df = pd.DataFrame(data)
+
+        pd.set_option("display.max_columns", None)
+        print(df.describe().T)
+    
+        for col in cols:
+            values = df[col].dropna()
+        
+            if "AREA_RATIO" in col:
+                high_ratio = np.mean(values >= 0.95)
+                low_ratio = np.mean(values <= 0.01)
+                print(f"{col}: high_ratio={high_ratio:.3f}, near_zero={low_ratio:.3f}")
+            else:
+                saturated = np.mean(values >= 250)
+                near_zero = np.mean(values <= 5)
+                print(f"{col}: saturated={saturated:.3f}, near_zero={near_zero:.3f}")
+    
+
     def split_train_val_test(self, data, train_size=0.7, val_size=0.15, test_size=0.15, random_state=42):
     
         # Ensure correct format
@@ -264,8 +403,47 @@ class DataAnalysis:
         if values.size == 0:
             return 0.0
     
-        return float(np.mean(values))
+        mean_val = np.mean(values)
+    
+        # Avoid Nan
+        if not np.isfinite(mean_val):
+            return 0.0
+    
+        return float(mean_val)
  
+    """
+    @brief: Computes the proportion of fluorescent (bright) pixels in the image
+    
+    @param fluor_img: Fluorescence image (grayscale)
+    @param threshold: Intensity threshold to consider a pixel as "fluorescent"
+    
+    @return: Ratio of bright pixels in [0,1]
+    """
+    def calculate_fluorescent_area_ratio(self, fluor_img, threshold=30):
+       
+       
+       if fluor_img is None:
+           return 0.0
+       
+       # Convert to numpy array if needed
+       fluor = np.asarray(fluor_img)
+       
+       if fluor.size == 0:
+           return 0.0
+       
+       # Count bright pixels
+       bright_pixels = fluor > threshold
+       
+       if bright_pixels.size == 0:
+           return 0.0
+       
+       # Compute ratio
+       ratio = np.mean(bright_pixels)
+       
+       if not np.isfinite(ratio):
+           return 0.0
+       
+       return float(ratio)
     
     '''
     @brief: Gets all microalgae data for a determined metric name

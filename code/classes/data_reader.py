@@ -29,7 +29,6 @@ class DataReader:
         print("--------- IMAGE READING ----------------")
 
         # Define outpuut data structure
-        y = []
         img_paths = {}
 
         # Get base path to read from
@@ -107,6 +106,9 @@ class DataReader:
                                         img_paths[base_name][suffix] = img
 
         
+        # Clean the data, ensuring each microalga has all channels
+        img_paths = self.clean_incomplete_data(img_paths)
+
         print("----")
         return img_paths            
 
