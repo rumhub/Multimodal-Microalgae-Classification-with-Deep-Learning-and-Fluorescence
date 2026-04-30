@@ -143,7 +143,32 @@ class DataAnalysis:
             config.Channels.FLUORESCENT_AREA_RATIO_FLU3,
             config.Channels.FLUORESCENT_AREA_RATIO_FLU,
         ]
+        self.plot_correlation(cols, img_paths, "Correlation matrix of fluorescence channels")
     
+    
+    def plot_mofologic_correlation(self, img_paths):
+        cols = [
+            config.Channels.MASK_AREA,
+            config.Channels.MASK_PERIMETER,
+            config.Channels.MASK_CIRCULARITY,
+            config.Channels.MASK_SOLIDITY,
+            config.Channels.MASK_ASPECTRATIO,
+        ]
+        self.plot_correlation(cols, img_paths, "Correlation matrix of morphological features")
+    
+        
+    def plot_final_variables_correlation(self, img_paths):
+        cols = [
+            config.Channels.MASK_AREA,
+            config.Channels.MASK_SOLIDITY,
+            config.Channels.MASK_ASPECTRATIO,
+            config.Channels.MEAN_FLUORESCENCE_FLU2,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU2
+        ]
+        self.plot_correlation(cols, img_paths, "Correlation matrix of final variables")
+        
+    
+    def plot_correlation(self, cols, img_paths, title):
         data = []
         for _, fields in img_paths.items():
             row = {}
@@ -152,34 +177,21 @@ class DataAnalysis:
                     row[col] = fields[col]
             if len(row) == len(cols):
                 data.append(row)
-    
+        
         df = pd.DataFrame(data)
         corr = df.corr()
-    
+        
         plt.figure(figsize=(7, 6))
         plt.imshow(corr, interpolation="nearest")
         plt.colorbar()
         plt.xticks(range(len(cols)), cols, rotation=45, ha="right")
         plt.yticks(range(len(cols)), cols)
-        plt.title("Correlation matrix of fluorescence channels")
+        plt.title(title)
         plt.tight_layout()
         plt.show()
+        
     
-        print(corr)
-        return corr
-    
-    def print_fluorescence_summary(self, img_paths):
-        cols = [
-            config.Channels.MEAN_FLUORESCENCE_FLU1,
-            config.Channels.MEAN_FLUORESCENCE_FLU2,
-            config.Channels.MEAN_FLUORESCENCE_FLU3,
-            config.Channels.MEAN_FLUORESCENCE_FLU,
-            config.Channels.FLUORESCENT_AREA_RATIO_FLU1,
-            config.Channels.FLUORESCENT_AREA_RATIO_FLU2,
-            config.Channels.FLUORESCENT_AREA_RATIO_FLU3,
-            config.Channels.FLUORESCENT_AREA_RATIO_FLU,
-        ]
-    
+    def print_summary(self, cols, img_paths):
         data = []
         for _, fields in img_paths.items():
             row = {}
@@ -206,6 +218,21 @@ class DataAnalysis:
                 near_zero = np.mean(values <= 5)
                 print(f"{col}: saturated={saturated:.3f}, near_zero={near_zero:.3f}")
     
+    def print_fluorescence_summary(self, img_paths):
+        cols = [
+            config.Channels.MEAN_FLUORESCENCE_FLU1,
+            config.Channels.MEAN_FLUORESCENCE_FLU2,
+            config.Channels.MEAN_FLUORESCENCE_FLU3,
+            config.Channels.MEAN_FLUORESCENCE_FLU,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU1,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU2,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU3,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU,
+        ]
+        
+        self.print_summary(cols, img_paths)
+    
+        
 
     def split_train_val_test(self, data, train_size=0.7, val_size=0.15, test_size=0.15, random_state=42):
     
@@ -701,6 +728,19 @@ class DataAnalysis:
                 "max": float(high)
             }
     
+        
+        # Manual FLu2 treshold
+        mean_key = config.Channels.MEAN_FLUORESCENCE_FLU2
+        ratio_key = config.Channels.FLUORESCENT_AREA_RATIO_FLU2
+        
+        if mean_key in global_limits:
+            global_limits[mean_key]["min"] = max(global_limits[mean_key]["min"], 5.0)
+            global_limits[mean_key]["max"] = min(global_limits[mean_key]["max"], 255.0)
+        
+        if ratio_key in global_limits:
+            global_limits[ratio_key]["min"] = max(global_limits[ratio_key]["min"], 0.02)
+            global_limits[ratio_key]["max"] = min(global_limits[ratio_key]["max"], 1.0)
+        
         self.global_channel_limits = global_limits
     
     '''
@@ -797,3 +837,80 @@ class DataAnalysis:
                         self.describe_channel(channel_data_filtered, f"------------ {channel_name} DESCRIPTION AFTER FILTERING ------------")
             
         return data
+    
+    
+    """
+    @brief: Splits each sample into image-channel data and selected feature data.
+    
+    @param img_paths: Dictionary containing image paths, class labels and calculated features.
+    
+    @return:
+        image_data: Dictionary with image channel paths and class labels.
+        feature_data: Dictionary with selected calculated features and class labels.
+    """
+    def split_data_from_features(self, img_paths):
+    
+        # Example: amp, flr_1, flr_2, flr_3, flu, mask, phase
+        image_keys = set(config.IMG_SUFFIXES)
+    
+        # Selected calculated features used for filtering/tabular analysis.
+        feature_keys = set(config.SELECTED_FEATURES)
+    
+        # Metadata to preserve in both outputs.
+        metadata_keys = {"class"}
+    
+        image_data = {}
+        feature_data = {}
+    
+        # Iterate over each microalga/sample
+        for img_name, fields in img_paths.items():
+    
+            # Keep only image channels + metadata
+            image_data[img_name] = {
+                key: value
+                for key, value in fields.items()
+                if key in image_keys or key in metadata_keys
+            }
+    
+            # Keep only selected calculated features + metadata
+            feature_data[img_name] = {
+                key: value
+                for key, value in fields.items()
+                if key in feature_keys or key in metadata_keys
+            }
+    
+        return image_data, feature_data
+
+
+    """
+    @brief: Removes calculated features that are not selected.
+            Image channels and metadata are kept.
+    """
+    def remove_unselected_features(self, img_paths):
+    
+        # Get all calculated feature names defined in config.Channels.
+        # These are the fields that may be removed if they were not selected.
+        all_features = {
+            value
+            for value in vars(config.Channels).values()
+            if isinstance(value, str)
+        }
+
+        # Get the selected features    
+        selected_features = set(config.SELECTED_FEATURES)
+    
+        # Output dictionary
+        cleaned_data = {}
+    
+        # Iterate over every microalga/sample
+        for img_name, fields in img_paths.items():
+    
+            # Keep fields that are NOT calculated features (amp, flr_1, flr_2, ..)
+            #       AND calculated features that ARE selected
+            cleaned_data[img_name] = {
+                key: value
+                for key, value in fields.items()
+                if key not in all_features or key in selected_features
+            }
+    
+        return cleaned_data
