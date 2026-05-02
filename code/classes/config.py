@@ -15,6 +15,8 @@ IMG_SUFFIXES = ["amp", "flr_1", "flr_2", "flr_3", "flu", "mask", "phase"]
 
 PIXEL_SIZE = 0.57971  # um per pixel
 
+MODEL_PATH = "classes/saved_models/best_model.pth"
+
 class Channels:
     MASK_AREA = "MASK_AREA"
     MASK_PERIMETER = "MASK_PERIMETER"

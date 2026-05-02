@@ -15,7 +15,7 @@ class DataAnalysis:
     
     '''
     @brief: Calculates and stores information about each microalga
-    @paaram img_paths: Dictionary with the microalgae images
+    @param img_paths: Dictionary with the microalgae images
     '''
     def get_img_metrics(self, img_paths):
         
