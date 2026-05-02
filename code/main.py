@@ -13,7 +13,7 @@ def main():
 
     # If True, the CNN is trained from scratch and saved
     # If False, a previously saved model is loaded
-    TRAIN_MODEL = True
+    TRAIN_MODEL = False
     
     # Convert model path to a Path object
     model_path = Path(config.MODEL_PATH)
@@ -101,7 +101,7 @@ def main():
     
     if TRAIN_MODEL:
         # Train the model from scratch
-        model.train(num_epochs=1, learning_rate=1e-4)
+        model.train(num_epochs=200, learning_rate=1e-4)
         
         # Save the trained model weights
         model.save(config.MODEL_PATH)
@@ -116,6 +116,33 @@ def main():
     
     test_loss, test_acc = model.evaluate(split="test")
     print(f"Test loss: {test_loss:.4f} | Test acc: {test_acc:.4f}")
+    
+    # =================== CONFIDENCE THRESHOLD FILTERING ===================
+
+    # Compute one confidence threshold for each predicted class using validation data
+    class_thresholds = model.compute_class_confidence_thresholds(
+        split="val",
+        min_accepted_ratio=0.8
+    )
+    
+    print("Class confidence thresholds:")
+    for class_idx, threshold in class_thresholds.items():
+        print(f"Class {class_idx}: {threshold:.2f}")
+    
+    # Evaluate the test set using the confidence thresholds
+    filtered_metrics = model.evaluate_with_confidence_filter(
+        split="test",
+        class_thresholds=class_thresholds
+    )
+    
+    print(f"Total samples: {filtered_metrics['total_samples']}")
+    print(f"Accepted predictions: {filtered_metrics['num_accepted']}")
+    print(f"Rejected predictions: {filtered_metrics['num_rejected']}")
+    print(f"Coverage: {filtered_metrics['coverage']:.4f}")
+    print(f"Original accuracy: {filtered_metrics['original_accuracy']:.4f}")
+    print(f"Accuracy on accepted predictions: {filtered_metrics['accepted_accuracy']:.4f}")
+    
+    
     
 if __name__ == "__main__":
     main()

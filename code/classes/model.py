@@ -166,18 +166,7 @@ class Model:
     def evaluate(self, split="test"):
 
         # Select the corresponding DataLoader depending on the spli
-        if split == "train":
-            loader = self.train_loader
-        elif split == "val":
-            loader = self.val_loader
-        elif split == "test":
-            loader = self.test_loader
-        else:
-            raise ValueError("split must be 'train', 'val' or 'test'.")
-
-        # Check that the selected DataLoader has been created
-        if loader is None:
-            raise ValueError(f"{split} data has not been loaded.")
+        loader = self._get_loader(split)
 
         # Set the model to evaluation mode
         # This disables training-specific behavior such as dropout and changes
@@ -283,6 +272,32 @@ class Model:
         # predicted_class.item() extracts the scalar value from the tensor
         # confidence.item() extracts the scalar probability from the tensor
         return int(predicted_class.item()), float(confidence.item())
+
+
+    """
+    @brief: Predicts all samples in a dictionary
+
+    @param data: Dictionary containing the samples
+
+    @return: Dictionary with true class, predicted class and confidence
+    """
+    def predict_dataset(self, data):
+
+    
+        results = {}
+    
+        for sample_name, fields in data.items():
+    
+            predicted_class, confidence = self.predict(fields)
+            true_class = fields["class"]
+    
+            results[sample_name] = {
+                "true_class": true_class,
+                "predicted_class": predicted_class,
+                "confidence": confidence,
+            }
+    
+        return results
 
 
     """
@@ -545,6 +560,291 @@ class Model:
 
         return model
 
+
+    """
+    @brief: Computes one confidence threshold per predicted class using a selected split
+
+    @param split: Dataset split used to compute the thresholds. Usually "val"
+    @param min_accepted_ratio: Minimum fraction of predictions that must be accepted
+                               for each predicted class
+    @param thresholds: Candidate thresholds to evaluate
+
+    @return: Dictionary with one confidence threshold per class
+    """
+    def compute_class_confidence_thresholds(
+        self,
+        split="val",
+        min_accepted_ratio=0.8,
+        thresholds=None
+    ):
+        
+        # Set default candidate thresholds if none are provided
+        if thresholds is None:
+            thresholds = np.arange(0.0, 1.01, 0.01)
+    
+        # Get predictions from the selected split
+        results = self.predict_loader(split=split)
+    
+        # Set default thresholds
+        class_thresholds = {
+            class_idx: 1.0
+            for class_idx in range(self.num_classes)
+        }
+    
+        # Compute one threshold for each predicted class
+        for class_idx in range(self.num_classes):
+    
+            # Select only the samples that the model predicted as this class
+            class_results = [
+                result
+                for result in results
+                if result["predicted_class"] == class_idx
+            ]
+    
+            # If no samples were predicted as this class, keep the default threshold
+            if len(class_results) == 0:
+                continue
+    
+            # Initialize best threshold metrics
+            best_threshold = 0.0
+            best_accuracy = -1.0
+            best_accepted_ratio = 0.0
+    
+            # Try all candidate confidence thresholds
+            for threshold in thresholds:
+    
+                # Keep only predictions whose confidence is above the threshold
+                accepted_results = [
+                    result
+                    for result in class_results
+                    if result["confidence"] >= threshold
+                ]
+    
+                # Fraction of predictions accepted for this predicted class
+                accepted_ratio = len(accepted_results) / len(class_results)
+    
+                # Ignore thresholds that reject too many samples
+                if accepted_ratio < min_accepted_ratio:
+                    continue
+    
+                # Safety check to avoid division by zero
+                if len(accepted_results) == 0:
+                    continue
+    
+                # Compute accuracy only on the accepted predictions
+                accuracy = sum(
+                    result["predicted_class"] == result["true_class"]
+                    for result in accepted_results
+                ) / len(accepted_results)
+    
+                # Select the threshold that gives the best accuracy.
+                # If two thresholds give the same accuracy, prefer the one
+                # that accepts more samples.
+                if (
+                    accuracy > best_accuracy or
+                    (accuracy == best_accuracy and accepted_ratio > best_accepted_ratio)
+                ):
+                    best_accuracy = accuracy
+                    best_threshold = threshold
+                    best_accepted_ratio = accepted_ratio
+    
+            # Store the best threshold found for this class
+            class_thresholds[class_idx] = float(best_threshold)
+    
+        return class_thresholds
+
+
+
+    """
+    @brief: Predicts all samples from a selected DataLoader
+            If class_thresholds is provided, class-specific confidence filtering is
+            also applied
+
+    @param split: Dataset split to predict. It can be "train", "val" or "test"
+    @param class_thresholds: Optional dictionary with one confidence threshold per class
+
+    @return: List of dictionaries with prediction results
+    """
+    def predict_loader(self, split="test", class_thresholds=None):
+
+        # Get the DataLoader corresponding to the selected split
+        loader = self._get_loader(split)
+    
+        # Set model to evaluation mode
+        self.model.eval()
+    
+        # List where prediction results will be stored
+        results = []
+    
+        # Disable gradient computation
+        with torch.no_grad():
+    
+            # Iterate over all batches in the selected DataLoader
+            for x, y in loader:
+    
+                # Move batch to selected device
+                x = x.to(self.device)
+                y = y.to(self.device)
+    
+                # Forward pass
+                logits = self.model(x)
+    
+                # Convert logits to probabilities
+                probs = torch.softmax(logits, dim=1)
+    
+                # Get confidence and predicted class for each sample
+                confidences, predicted_classes = torch.max(probs, dim=1)
+    
+                # Store results sample by sample
+                for true_class, predicted_class, confidence in zip(
+                    y.cpu(),
+                    predicted_classes.cpu(),
+                    confidences.cpu()
+                ):
+                    # Convert from PyTorch scalar tensors to Python values
+                    true_class = int(true_class.item())
+                    predicted_class = int(predicted_class.item())
+                    confidence = float(confidence.item())
+    
+                    # Store the results of the prediction
+                    result = {
+                        "true_class": true_class,
+                        "predicted_class": predicted_class,
+                        "confidence": confidence,
+                    }
+    
+                    # If thresholds are provided, apply confidence filtering
+                    if class_thresholds is not None:
+    
+                        # Check that a threshold exists for the predicted class
+                        if predicted_class not in class_thresholds:
+                            raise ValueError(
+                                f"No confidence threshold defined for class {predicted_class}"
+                            )
+    
+                        # Get the confidence threshold associated with the predicted class
+                        threshold = class_thresholds[predicted_class]
+                        
+                        # Accept the prediction only if its confidence is greater
+                        # than or equal to the threshold of the predicted class
+                        result["accepted"] = confidence >= threshold
+    
+                    # Add the result of this sample to the final list
+                    results.append(result)
+    
+        return results
+
+
+
+    """
+    @brief: Evaluates the model using class-specific confidence thresholds
+    
+    Only predictions whose confidence is greater than or equal to the threshold
+    of their predicted class are accepted.
+    
+    @param split: Dataset split to evaluate. It can be "train", "val" or "test"
+    @param class_thresholds: Dictionary with one confidence threshold per class
+    
+    @return: Dictionary with filtering evaluation metrics
+    """
+    def evaluate_with_confidence_filter(self, split="test", class_thresholds=None):
+    
+        if class_thresholds is None:
+            raise ValueError("class_thresholds must be provided.")
+    
+        # Predict all samples from the selected split and apply confidence filtering
+        results = self.predict_loader(
+            split=split,
+            class_thresholds=class_thresholds
+        )
+    
+        # Total number of samples
+        total_samples = len(results)
+    
+        # Keep only accepted predictions
+        accepted_results = [
+            result for result in results
+            if result["accepted"]
+        ]
+    
+        # Number of accepted and rejected predictions
+        num_accepted = len(accepted_results)
+        num_rejected = total_samples - num_accepted
+    
+        # Fraction of samples accepted by the filter
+        coverage = num_accepted / total_samples if total_samples > 0 else 0.0
+    
+        # Accuracy on the full split before applying rejection
+        original_accuracy = sum(
+            result["predicted_class"] == result["true_class"]
+            for result in results
+        ) / total_samples if total_samples > 0 else 0.0
+    
+        # Accuracy only on accepted predictions
+        if num_accepted > 0:
+            accepted_accuracy = sum(
+                result["predicted_class"] == result["true_class"]
+                for result in accepted_results
+            ) / num_accepted
+        else:
+            accepted_accuracy = 0.0
+    
+        return {
+            "total_samples": total_samples,
+            "num_accepted": num_accepted,
+            "num_rejected": num_rejected,
+            "coverage": coverage,
+            "original_accuracy": original_accuracy,
+            "accepted_accuracy": accepted_accuracy,
+            "results": results
+        }
+
+    """
+    @brief: Returns the DataLoader corresponding to the selected split
+    """
+    def _get_loader(self, split):
+
+    
+        loaders = {
+            "train": self.train_loader,
+            "val": self.val_loader,
+            "test": self.test_loader
+        }
+    
+        if split not in loaders:
+            raise ValueError("split must be 'train', 'val' or 'test'.")
+    
+        loader = loaders[split]
+    
+        if loader is None:
+            raise ValueError(f"{split} data has not been loaded.")
+    
+        return loader
+
+    """
+    @brief: Predicts the class of one sample and applies a confidence threshold
+    depending on the predicted class
+
+    @param sample: Dictionary with image paths for the selected channels
+    @param class_thresholds: Dictionary with minimum confidence per class
+
+    @return: predicted_class, confidence, accepted
+    """
+    def predict_with_filter(self, sample, class_thresholds):
+
+    
+        predicted_class, confidence = self.predict(sample)
+    
+        if predicted_class not in class_thresholds:
+            raise ValueError(f"No confidence threshold defined for class {predicted_class}")
+    
+        threshold = class_thresholds[predicted_class]
+        accepted = confidence >= threshold
+    
+        return predicted_class, confidence, accepted
+
+
+
 """
 Internal dataset used only by Model.
 
@@ -622,3 +922,4 @@ class _MicroalgaeDataset(Dataset):
         y = torch.tensor(fields["class"], dtype=torch.long)
 
         return x, y
+    
