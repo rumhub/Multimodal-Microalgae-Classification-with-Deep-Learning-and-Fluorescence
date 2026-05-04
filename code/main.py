@@ -1,3 +1,6 @@
+import random
+import numpy as np
+import torch
 from pathlib import Path
 from classes.data_reader import DataReader
 from classes.data_analysis import DataAnalysis
@@ -5,11 +8,26 @@ from classes.csv_writer import CSVWriter
 from classes.model import Model
 import classes.config as config
 
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    print(f"Using seed: {seed}")
 
 def main():
     
     
     # =================== CONFIGURATION ===================
+
+    SEED = 42
+    set_seed(SEED)
 
     # If True, the CNN is trained from scratch and saved
     # If False, a previously saved model is loaded
