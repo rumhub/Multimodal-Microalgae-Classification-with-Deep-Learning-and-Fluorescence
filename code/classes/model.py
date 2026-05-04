@@ -86,7 +86,7 @@ class Model:
         best_model_state = None
     
         # Optimizer used to update the CNN weights during training
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate, weight_decay=1e-4)
 
     
         # Main training loop. Each iteration corresponds to one full pass
@@ -188,7 +188,7 @@ class Model:
         with torch.no_grad():
             
             # Iterate over all batches in the selected DataLoader
-            for x, y in loader:
+            for x, y, _ in loader:
                 
                 # Move input images and labels to the selected device (GPU or CPU)
                 x = x.to(self.device)
@@ -357,7 +357,7 @@ class Model:
         total = 0
 
         # Iterate over all batches in the training DataLoader
-        for x, y in self.train_loader:
+        for x, y, _ in self.train_loader:
             
             # Move input images and labels to the selected device (GPU or CPU)
             x = x.to(self.device)
@@ -568,78 +568,85 @@ class Model:
     @param min_accepted_ratio: Minimum fraction of predictions that must be accepted
                                for each predicted class
     @param thresholds: Candidate thresholds to evaluate
+    @param verbose: If True, prints the threshold selection summary
 
     @return: Dictionary with one confidence threshold per class
     """
-    def compute_class_confidence_thresholds(
-        self,
-        split="val",
-        min_accepted_ratio=0.8,
-        thresholds=None
-    ):
-        
-        # Set default candidate thresholds if none are provided
+    def compute_class_confidence_thresholds(self, split="val", min_accepted_ratio=0.8, 
+                                            thresholds=None, debug=True):
+
         if thresholds is None:
             thresholds = np.arange(0.0, 1.01, 0.01)
     
-        # Get predictions from the selected split
         results = self.predict_loader(split=split)
     
-        # Set default thresholds
         class_thresholds = {
             class_idx: 1.0
             for class_idx in range(self.num_classes)
         }
     
-        # Compute one threshold for each predicted class
+        threshold_summary = {}
+    
+        if debug:
+            print("\n--------- CONFIDENCE THRESHOLD SEARCH ----------------")
+    
         for class_idx in range(self.num_classes):
     
-            # Select only the samples that the model predicted as this class
             class_results = [
                 result
                 for result in results
                 if result["predicted_class"] == class_idx
             ]
     
-            # If no samples were predicted as this class, keep the default threshold
-            if len(class_results) == 0:
+            num_predictions = len(class_results)
+    
+            if num_predictions == 0:
+                threshold_summary[class_idx] = {
+                    "num_predictions": 0,
+                    "threshold": 1.0,
+                    "accepted": 0,
+                    "accepted_ratio": 0.0,
+                    "accepted_accuracy": 0.0
+                }
+    
+                if debug:
+                    print(
+                        f"Class {class_idx} | "
+                        f"Predicted samples: 0 | "
+                        f"Threshold: 1.00 | "
+                        f"Coverage: 0.0000 | "
+                        f"Accepted acc: 0.0000"
+                    )
+    
                 continue
     
-            # Initialize best threshold metrics
             best_threshold = 0.0
             best_accuracy = -1.0
             best_accepted_ratio = 0.0
+            best_num_accepted = 0
     
-            # Try all candidate confidence thresholds
             for threshold in thresholds:
     
-                # Keep only predictions whose confidence is above the threshold
                 accepted_results = [
                     result
                     for result in class_results
                     if result["confidence"] >= threshold
                 ]
     
-                # Fraction of predictions accepted for this predicted class
-                accepted_ratio = len(accepted_results) / len(class_results)
+                num_accepted = len(accepted_results)
+                accepted_ratio = num_accepted / num_predictions
     
-                # Ignore thresholds that reject too many samples
                 if accepted_ratio < min_accepted_ratio:
                     continue
     
-                # Safety check to avoid division by zero
-                if len(accepted_results) == 0:
+                if num_accepted == 0:
                     continue
     
-                # Compute accuracy only on the accepted predictions
                 accuracy = sum(
                     result["predicted_class"] == result["true_class"]
                     for result in accepted_results
-                ) / len(accepted_results)
+                ) / num_accepted
     
-                # Select the threshold that gives the best accuracy.
-                # If two thresholds give the same accuracy, prefer the one
-                # that accepts more samples.
                 if (
                     accuracy > best_accuracy or
                     (accuracy == best_accuracy and accepted_ratio > best_accepted_ratio)
@@ -647,9 +654,32 @@ class Model:
                     best_accuracy = accuracy
                     best_threshold = threshold
                     best_accepted_ratio = accepted_ratio
+                    best_num_accepted = num_accepted
     
-            # Store the best threshold found for this class
             class_thresholds[class_idx] = float(best_threshold)
+    
+            threshold_summary[class_idx] = {
+                "num_predictions": num_predictions,
+                "threshold": float(best_threshold),
+                "accepted": best_num_accepted,
+                "accepted_ratio": best_accepted_ratio,
+                "accepted_accuracy": best_accuracy
+            }
+    
+            if debug:
+                print(
+                    f"Class {class_idx} | "
+                    f"Predicted samples: {num_predictions} | "
+                    f"Threshold: {best_threshold:.2f} | "
+                    f"Accepted: {best_num_accepted}/{num_predictions} | "
+                    f"Coverage: {best_accepted_ratio:.4f} | "
+                    f"Accepted acc: {best_accuracy:.4f}"
+                )
+    
+        if debug:
+            print("------------------------------------------------------\n")
+    
+        self.confidence_threshold_summary = threshold_summary
     
         return class_thresholds
 
@@ -657,16 +687,17 @@ class Model:
 
     """
     @brief: Predicts all samples from a selected DataLoader
-            If class_thresholds is provided, class-specific confidence filtering is
-            also applied
-
+    
+    If class_thresholds is provided, class-specific confidence filtering is
+    also applied.
+    
     @param split: Dataset split to predict. It can be "train", "val" or "test"
     @param class_thresholds: Optional dictionary with one confidence threshold per class
-
+    
     @return: List of dictionaries with prediction results
     """
     def predict_loader(self, split="test", class_thresholds=None):
-
+    
         # Get the DataLoader corresponding to the selected split
         loader = self._get_loader(split)
     
@@ -680,7 +711,7 @@ class Model:
         with torch.no_grad():
     
             # Iterate over all batches in the selected DataLoader
-            for x, y in loader:
+            for x, y, sample_names in loader:
     
                 # Move batch to selected device
                 x = x.to(self.device)
@@ -696,7 +727,8 @@ class Model:
                 confidences, predicted_classes = torch.max(probs, dim=1)
     
                 # Store results sample by sample
-                for true_class, predicted_class, confidence in zip(
+                for sample_name, true_class, predicted_class, confidence in zip(
+                    sample_names,
                     y.cpu(),
                     predicted_classes.cpu(),
                     confidences.cpu()
@@ -708,6 +740,7 @@ class Model:
     
                     # Store the results of the prediction
                     result = {
+                        "sample_name": sample_name,
                         "true_class": true_class,
                         "predicted_class": predicted_class,
                         "confidence": confidence,
@@ -724,10 +757,10 @@ class Model:
     
                         # Get the confidence threshold associated with the predicted class
                         threshold = class_thresholds[predicted_class]
-                        
+    
                         # Accept the prediction only if its confidence is greater
                         # than or equal to the threshold of the predicted class
-                        result["accepted"] = confidence >= threshold
+                        result["confidence_accepted"] = confidence >= threshold
     
                     # Add the result of this sample to the final list
                     results.append(result)
@@ -757,6 +790,11 @@ class Model:
             split=split,
             class_thresholds=class_thresholds
         )
+    
+        # For confidence-only filtering, the final accepted decision is the same
+        # as the confidence filter decision
+        for result in results:
+            result["accepted"] = result["confidence_accepted"]
     
         # Total number of samples
         total_samples = len(results)
@@ -796,6 +834,135 @@ class Model:
             "coverage": coverage,
             "original_accuracy": original_accuracy,
             "accepted_accuracy": accepted_accuracy,
+            "results": results
+        }
+
+
+    """
+    @brief: Evaluates the model using class-specific feature filtering and
+            class-specific confidence thresholds
+    
+    A prediction is accepted only if:
+        1. The sample passes the feature limits of the predicted class
+        2. The confidence is greater than or equal to the threshold of the predicted class
+    
+    @param split: Dataset split to evaluate. It can be "train", "val" or "test"
+    @param features: Dictionary with selected features for the selected split
+    @param data_analysis: DataAnalysis object containing the class limits
+    @param class_thresholds: Dictionary with one confidence threshold per class
+    
+    @return: Dictionary with filtering evaluation metrics
+    """
+    def evaluate_with_class_and_confidence_filter(
+        self,
+        split,
+        features,
+        data_analysis,
+        class_thresholds
+    ):
+    
+        if class_thresholds is None:
+            raise ValueError("class_thresholds must be provided.")
+    
+        # Predict all samples and compute confidence filtering
+        results = self.predict_loader(
+            split=split,
+            class_thresholds=class_thresholds
+        )
+    
+        # Apply class-specific feature filtering and combine both filters
+        for result in results:
+    
+            sample_name = result["sample_name"]
+            predicted_class = result["predicted_class"]
+    
+            # Get selected features of this sample
+            if sample_name not in features:
+                raise ValueError(f"Features not found for sample: {sample_name}")
+    
+            sample_features = features[sample_name]
+    
+            # First filter: check whether the sample is compatible with
+            # the limits of the predicted class
+            class_filter_accepted = data_analysis.passes_class_filter(
+                sample_features,
+                predicted_class
+            )
+    
+            # Second filter: check whether the confidence is high enough
+            confidence_accepted = result["confidence_accepted"]
+    
+            # Store individual filter decisions
+            result["class_filter_accepted"] = class_filter_accepted
+            result["confidence_accepted"] = confidence_accepted
+    
+            # Final decision.
+            # A prediction is accepted only if it passes both filters.
+            result["accepted"] = class_filter_accepted and confidence_accepted
+    
+        # Total number of samples
+        total_samples = len(results)
+    
+        # Accepted predictions after both filters
+        accepted_results = [
+            result for result in results
+            if result["accepted"]
+        ]
+    
+        # Rejected predictions after at least one filter
+        rejected_results = [
+            result for result in results
+            if not result["accepted"]
+        ]
+    
+        # Number of accepted and rejected predictions
+        num_accepted = len(accepted_results)
+        num_rejected = len(rejected_results)
+    
+        # Fraction of samples accepted by the complete system
+        coverage = num_accepted / total_samples if total_samples > 0 else 0.0
+    
+        # Accuracy before applying rejection
+        original_accuracy = sum(
+            result["predicted_class"] == result["true_class"]
+            for result in results
+        ) / total_samples if total_samples > 0 else 0.0
+    
+        # Accuracy only on accepted predictions
+        if num_accepted > 0:
+            accepted_accuracy = sum(
+                result["predicted_class"] == result["true_class"]
+                for result in accepted_results
+            ) / num_accepted
+        else:
+            accepted_accuracy = 0.0
+    
+        # Count how many samples each filter rejects
+        rejected_by_class_filter = sum(
+            not result["class_filter_accepted"]
+            for result in results
+        )
+    
+        rejected_by_confidence = sum(
+            not result["confidence_accepted"]
+            for result in results
+        )
+    
+        rejected_by_both = sum(
+            not result["class_filter_accepted"] and not result["confidence_accepted"]
+            for result in results
+        )
+    
+        return {
+            "total_samples": total_samples,
+            "num_accepted": num_accepted,
+            "num_rejected": num_rejected,
+            "coverage": coverage,
+            "original_accuracy": original_accuracy,
+            "accepted_accuracy": accepted_accuracy,
+            "rejected_by_class_filter": rejected_by_class_filter,
+            "rejected_by_confidence": rejected_by_confidence,
+            "rejected_by_both": rejected_by_both,
             "results": results
         }
 
@@ -843,6 +1010,108 @@ class Model:
     
         return predicted_class, confidence, accepted
 
+
+    def tune_class_filter_percentiles(
+        self,
+        train_data,
+        val_features,
+        data_analysis,
+        class_thresholds,
+        percentile_candidates=None,
+        min_coverage=0.75
+    ):
+        """
+        Searches the best class-filter percentile range using validation data.
+    
+        Limits are always computed from train_data.
+        Performance is evaluated on validation data.
+    
+        @param train_data: Training data used to compute class limits
+        @param val_features: Validation features used to evaluate the filter
+        @param data_analysis: DataAnalysis object
+        @param class_thresholds: Confidence thresholds already computed on validation
+        @param percentile_candidates: List of (p_low, p_high) candidates
+        @param min_coverage: Minimum accepted coverage allowed
+    
+        @return: best_p_low, best_p_high, best_metrics
+        """
+    
+        if percentile_candidates is None:
+            percentile_candidates = [
+                (1, 99),
+                (2, 98),
+                (5, 95),
+                (10, 90),
+                (15, 85),
+            ]
+    
+        best_p_low = None
+        best_p_high = None
+        best_metrics = None
+        best_score = -1.0
+    
+        print("\n--------- CLASS FILTER PERCENTILE SEARCH ----------------")
+    
+        for p_low, p_high in percentile_candidates:
+    
+            # Compute class limits only from train
+            data_analysis.compute_limits_per_class(
+                train_data,
+                p_low=p_low,
+                p_high=p_high
+            )
+    
+            # Evaluate on validation
+            metrics = self.evaluate_with_class_and_confidence_filter(
+                split="val",
+                features=val_features,
+                data_analysis=data_analysis,
+                class_thresholds=class_thresholds
+            )
+    
+            coverage = metrics["coverage"]
+            accepted_accuracy = metrics["accepted_accuracy"]
+    
+            print(
+                f"Percentiles {p_low}-{p_high} | "
+                f"Coverage: {coverage:.4f} | "
+                f"Accepted acc: {accepted_accuracy:.4f} | "
+                f"Rejected: {metrics['num_rejected']}"
+            )
+    
+            # Ignore filters that reject too many samples
+            if coverage < min_coverage:
+                continue
+    
+            # Main criterion: maximize accepted accuracy
+            # Secondary criterion: prefer higher coverage
+            score = accepted_accuracy + 0.01 * coverage
+    
+            if score > best_score:
+                best_score = score
+                best_p_low = p_low
+                best_p_high = p_high
+                best_metrics = metrics
+    
+        if best_p_low is None:
+            raise ValueError(
+                "No percentile configuration satisfied the minimum coverage."
+            )
+    
+        # Restore best limits
+        data_analysis.compute_limits_per_class(
+            train_data,
+            p_low=best_p_low,
+            p_high=best_p_high
+        )
+    
+        print("\nBest class filter percentiles:")
+        print(f"p_low={best_p_low}, p_high={best_p_high}")
+        print(f"Coverage: {best_metrics['coverage']:.4f}")
+        print(f"Accepted acc: {best_metrics['accepted_accuracy']:.4f}")
+        print("---------------------------------------------------------\n")
+    
+        return best_p_low, best_p_high, best_metrics
 
 
 """
@@ -911,15 +1180,17 @@ class _MicroalgaeDataset(Dataset):
         # Get the sample name corresponding to this index
         sample_name = self.sample_names[idx]
         
-        # Get all fields/channels of this microalga (aamp, phase, fl2, etc)
+        # Get all fields/channels of this microalga
         fields = self.data[sample_name]
-
-        # Load selected microalgaaa channels and convert them into a tensor
+    
+        # Load selected microalga channels and convert them into a tensor
         x = self.load_fn(fields)
         
         # Get the class label and convert it to a PyTorch tensor
         # dtype=torch.long is required by CrossEntropyLoss
         y = torch.tensor(fields["class"], dtype=torch.long)
-
-        return x, y
+    
+        # Return also the sample name so predictions can be linked later
+        # with morphological/fluorescence features
+        return x, y, sample_name
     

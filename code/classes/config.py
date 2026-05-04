@@ -17,6 +17,7 @@ PIXEL_SIZE = 0.57971  # um per pixel
 
 MODEL_PATH = "classes/saved_models/best_model.pth"
 
+
 class Channels:
     MASK_AREA = "MASK_AREA"
     MASK_PERIMETER = "MASK_PERIMETER"

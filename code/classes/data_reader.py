@@ -117,14 +117,17 @@ class DataReader:
         clean_data = {}
         n_channels = len(config.IMG_SUFFIXES) + 1  # IMG_SUFFIXES + class
         
+        
         for img_name, fields in data.items():
             if len(fields) == n_channels:
                 clean_data[img_name] = fields
+                
+        print("Number of initial elements: ", len(data))
+        print("Number of elements with all channels: ", len(clean_data))
         
         return clean_data
         
-        
-        
+            
         
         
         

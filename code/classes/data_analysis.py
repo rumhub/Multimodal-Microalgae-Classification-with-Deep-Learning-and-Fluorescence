@@ -4,6 +4,8 @@ import cv2
 import matplotlib.pyplot as plt
 import copy
 import pandas as pd
+import random
+from collections import defaultdict
 from sklearn.model_selection import train_test_split
 
 class DataAnalysis:
@@ -193,30 +195,26 @@ class DataAnalysis:
     
     def print_summary(self, cols, img_paths):
         data = []
+    
         for _, fields in img_paths.items():
             row = {}
+    
             for col in cols:
                 if col in fields:
                     row[col] = fields[col]
+    
             if len(row) == len(cols):
                 data.append(row)
     
         df = pd.DataFrame(data)
-
-        pd.set_option("display.max_columns", None)
-        print(df.describe().T)
     
-        for col in cols:
-            values = df[col].dropna()
-        
-            if "AREA_RATIO" in col:
-                high_ratio = np.mean(values >= 0.95)
-                low_ratio = np.mean(values <= 0.01)
-                print(f"{col}: high_ratio={high_ratio:.3f}, near_zero={low_ratio:.3f}")
-            else:
-                saturated = np.mean(values >= 250)
-                near_zero = np.mean(values <= 5)
-                print(f"{col}: saturated={saturated:.3f}, near_zero={near_zero:.3f}")
+        pd.set_option("display.max_columns", None)
+    
+        summary_df = df.describe().T
+    
+        print(summary_df)
+    
+        return summary_df
     
     def print_fluorescence_summary(self, img_paths):
         cols = [
@@ -230,7 +228,12 @@ class DataAnalysis:
             config.Channels.FLUORESCENT_AREA_RATIO_FLU,
         ]
         
-        self.print_summary(cols, img_paths)
+        return self.print_summary(cols, img_paths)
+    
+    def print_selected_variables_summary(self, img_paths):
+        cols = config.SELECTED_FEATURES
+        
+        return self.print_summary(cols, img_paths)
     
         
 
@@ -661,6 +664,9 @@ class DataAnalysis:
         
         limits = {}
         
+        mean_key = config.Channels.MEAN_FLUORESCENCE_FLU2
+        ratio_key = config.Channels.FLUORESCENT_AREA_RATIO_FLU2
+        
         # For each class
         for class_prefix, class_id in config.CLASS_PREFIXES.items():
             
@@ -695,9 +701,65 @@ class DataAnalysis:
                     "min": float(low),
                     "max": float(high)
                 }
+                
+                # Fluorescence variables are saturated at the upper bound.
+                # Therefore, they are only filtered by the lower percentile.
+                if channel == mean_key:
+                    limits[class_id][channel]["max"] = 255.0
+                
+                if channel == ratio_key:
+                    limits[class_id][channel]["max"] = 1.0
         
         self.channel_limits = limits
         
+    """
+    @brief: Checks whether one sample passes the feature limits of a predicted class.
+    
+    The class-specific limits must have been previously computed using
+    compute_limits_per_class().
+    
+    @param sample_features: Dictionary with the selected features of one sample
+    @param predicted_class: Class predicted by the CNN
+    
+    @return: True if the sample is compatible with the predicted class limits,
+             False otherwise
+    """
+    def passes_class_filter(self, sample_features, predicted_class):
+    
+        # Check that class limits have already been computed
+        if self.channel_limits is None:
+            raise ValueError("Class limits have not been computed. Call compute_limits_per_class() first.")
+    
+        # If there are no limits for the predicted class, reject the prediction
+        if predicted_class not in self.channel_limits:
+            return False
+    
+        # Get limits for the predicted class
+        class_limits = self.channel_limits[predicted_class]
+    
+        # Check all features with limits for this class
+        for channel_name, limits in class_limits.items():
+    
+            # If this feature is not present in the sample, skip it
+            if channel_name not in sample_features:
+                continue
+    
+            value = sample_features[channel_name]
+    
+            # Ignore missing values
+            if value is None:
+                continue
+    
+            # Get minimum and maximum allowed values for this feature
+            min_value = limits["min"]
+            max_value = limits["max"]
+    
+            # Reject the sample if the value is outside the class limits
+            if value < min_value or value > max_value:
+                return False
+    
+        # If all checked features are inside the limits, accept the sample
+        return True
     
     '''
     @brief: Calculates global limits for each channel
@@ -729,17 +791,16 @@ class DataAnalysis:
             }
     
         
-        # Manual FLu2 treshold
+        # Fluorescence variables are saturated at the upper bound
+        # Therefore, they are only filtered by the lower percentile
         mean_key = config.Channels.MEAN_FLUORESCENCE_FLU2
         ratio_key = config.Channels.FLUORESCENT_AREA_RATIO_FLU2
         
         if mean_key in global_limits:
-            global_limits[mean_key]["min"] = max(global_limits[mean_key]["min"], 5.0)
-            global_limits[mean_key]["max"] = min(global_limits[mean_key]["max"], 255.0)
-        
+            global_limits[mean_key]["max"] = 255.0
+    
         if ratio_key in global_limits:
-            global_limits[ratio_key]["min"] = max(global_limits[ratio_key]["min"], 0.02)
-            global_limits[ratio_key]["max"] = min(global_limits[ratio_key]["max"], 1.0)
+            global_limits[ratio_key]["max"] = 1.0
         
         self.global_channel_limits = global_limits
     
@@ -806,6 +867,8 @@ class DataAnalysis:
         # -------- Show information after filtering ------------
         # ------------------------------------------------------
         if debug == 1:
+            print("Filtered elements: ", len(data_copy) - len(data))
+
             for class_prefix in config.CLASS_PREFIXES: # For each class or microalga type
                 class_data = {}
                 class_data_filtered = {}
@@ -914,3 +977,51 @@ class DataAnalysis:
             }
     
         return cleaned_data
+    
+    """
+    @brief: Forces all classes to have the same number of samples by undersampling
+            the majority classes
+    """
+    def balance_classes_to_min_count(self, data, seed=42, debug=True):
+        data_by_class = defaultdict(list)
+        
+        for img_name, fields in data.items():
+            class_label = fields["class"]
+            data_by_class[class_label].append((img_name, fields))
+        
+        if len(data_by_class) == 0:
+            return {}
+        
+        min_count = min(len(samples) for samples in data_by_class.values())
+        
+        if debug:
+            print("\n--------- CLASS BALANCING ----------------")
+            print("Original distribution:")
+            for class_label, samples in sorted(data_by_class.items()):
+                print(f"Class {class_label}: {len(samples)} samples")
+        
+            print(f"\nBalancing all classes to {min_count} samples.")
+        
+        balanced_data = {}
+        
+        random.seed(seed)
+        
+        for class_label, samples in data_by_class.items():
+            selected_samples = random.sample(samples, min_count)
+        
+            for img_name, fields in selected_samples:
+                balanced_data[img_name] = fields
+        
+        if debug:
+            balanced_by_class = defaultdict(int)
+        
+            for fields in balanced_data.values():
+                balanced_by_class[fields["class"]] += 1
+        
+            print("\nBalanced distribution:")
+            for class_label, count in sorted(balanced_by_class.items()):
+                print(f"Class {class_label}: {count} samples")
+        
+            print("------------------------------------------\n")
+        
+        return balanced_data
