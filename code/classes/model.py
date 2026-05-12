@@ -574,10 +574,12 @@ class Model:
     """
     def compute_class_confidence_thresholds(self, split="val", min_accepted_ratio=0.8, 
                                             thresholds=None, debug=True):
-
+        
+        # Set deefault thresholds if none are given
         if thresholds is None:
             thresholds = np.arange(0.0, 1.01, 0.01)
     
+        # Get predictions from a data split (training, validation, test)
         results = self.predict_loader(split=split)
     
         class_thresholds = {
@@ -590,15 +592,17 @@ class Model:
         if debug:
             print("\n--------- CONFIDENCE THRESHOLD SEARCH ----------------")
     
+        # Calculate threshold for each class
         for class_idx in range(self.num_classes):
     
-            class_results = [
+            # Get predictions for the current class
+            class_predictions= [
                 result
                 for result in results
                 if result["predicted_class"] == class_idx
             ]
     
-            num_predictions = len(class_results)
+            num_predictions = len(class_predictions)
     
             if num_predictions == 0:
                 threshold_summary[class_idx] = {
@@ -625,11 +629,13 @@ class Model:
             best_accepted_ratio = 0.0
             best_num_accepted = 0
     
+            # Search through all possible thresholds
             for threshold in thresholds:
     
+                # Get accepted results for this threshold
                 accepted_results = [
                     result
-                    for result in class_results
+                    for result in class_predictions
                     if result["confidence"] >= threshold
                 ]
     
@@ -642,29 +648,21 @@ class Model:
                 if num_accepted == 0:
                     continue
     
+                # Calculate accuracy on current accepted results by this threshold
                 accuracy = sum(
                     result["predicted_class"] == result["true_class"]
                     for result in accepted_results
                 ) / num_accepted
     
-                if (
-                    accuracy > best_accuracy or
-                    (accuracy == best_accuracy and accepted_ratio > best_accepted_ratio)
-                ):
+                if (accuracy > best_accuracy or
+                    (accuracy == best_accuracy and accepted_ratio > best_accepted_ratio)):
                     best_accuracy = accuracy
                     best_threshold = threshold
                     best_accepted_ratio = accepted_ratio
                     best_num_accepted = num_accepted
     
+            # Store best threshold for class class_idx
             class_thresholds[class_idx] = float(best_threshold)
-    
-            threshold_summary[class_idx] = {
-                "num_predictions": num_predictions,
-                "threshold": float(best_threshold),
-                "accepted": best_num_accepted,
-                "accepted_ratio": best_accepted_ratio,
-                "accepted_accuracy": best_accuracy
-            }
     
             if debug:
                 print(
@@ -678,8 +676,6 @@ class Model:
     
         if debug:
             print("------------------------------------------------------\n")
-    
-        self.confidence_threshold_summary = threshold_summary
     
         return class_thresholds
 
@@ -1011,6 +1007,17 @@ class Model:
         return predicted_class, confidence, accepted
 
 
+    """
+    Searches class-specific percentile ranges using validation data.
+    
+    Limits are computed from train_data.
+    Performance is evaluated on validation data.
+    
+    @return:
+        class_percentiles, best_metrics
+    
+        class_percentiles = None means that only confidence thresholds are used.
+    """
     def tune_class_filter_percentiles(
         self,
         train_data,
@@ -1020,21 +1027,6 @@ class Model:
         percentile_candidates=None,
         min_coverage=0.75
     ):
-        """
-        Searches the best class-filter percentile range using validation data.
-    
-        Limits are always computed from train_data.
-        Performance is evaluated on validation data.
-    
-        @param train_data: Training data used to compute class limits
-        @param val_features: Validation features used to evaluate the filter
-        @param data_analysis: DataAnalysis object
-        @param class_thresholds: Confidence thresholds already computed on validation
-        @param percentile_candidates: List of (p_low, p_high) candidates
-        @param min_coverage: Minimum accepted coverage allowed
-    
-        @return: best_p_low, best_p_high, best_metrics
-        """
     
         if percentile_candidates is None:
             percentile_candidates = [
@@ -1045,74 +1037,115 @@ class Model:
                 (15, 85),
             ]
     
-        best_p_low = None
-        best_p_high = None
-        best_metrics = None
-        best_score = -1.0
+        print("\n--------- CLASS-SPECIFIC PERCENTILE SEARCH ----------------")
     
-        print("\n--------- CLASS FILTER PERCENTILE SEARCH ----------------")
-    
-        for p_low, p_high in percentile_candidates:
-    
-            # Compute class limits only from train
-            data_analysis.compute_limits_per_class(
-                train_data,
-                p_low=p_low,
-                p_high=p_high
-            )
-    
-            # Evaluate on validation
-            metrics = self.evaluate_with_class_and_confidence_filter(
-                split="val",
-                features=val_features,
-                data_analysis=data_analysis,
-                class_thresholds=class_thresholds
-            )
-    
-            coverage = metrics["coverage"]
-            accepted_accuracy = metrics["accepted_accuracy"]
-    
-            print(
-                f"Percentiles {p_low}-{p_high} | "
-                f"Coverage: {coverage:.4f} | "
-                f"Accepted acc: {accepted_accuracy:.4f} | "
-                f"Rejected: {metrics['num_rejected']}"
-            )
-    
-            # Ignore filters that reject too many samples
-            if coverage < min_coverage:
-                continue
-    
-            # Main criterion: maximize accepted accuracy
-            # Secondary criterion: prefer higher coverage
-            score = accepted_accuracy + 0.01 * coverage
-    
-            if score > best_score:
-                best_score = score
-                best_p_low = p_low
-                best_p_high = p_high
-                best_metrics = metrics
-    
-        if best_p_low is None:
-            raise ValueError(
-                "No percentile configuration satisfied the minimum coverage."
-            )
-    
-        # Restore best limits
-        data_analysis.compute_limits_per_class(
-            train_data,
-            p_low=best_p_low,
-            p_high=best_p_high
+        # First we evaluate with the confidence filter only
+        best_metrics = self.evaluate_with_confidence_filter(
+            split="val",
+            class_thresholds=class_thresholds
         )
     
-        print("\nBest class filter percentiles:")
-        print(f"p_low={best_p_low}, p_high={best_p_high}")
+        best_score = best_metrics["accepted_accuracy"] + 0.01 * best_metrics["coverage"]
+        best_class_percentiles = None
+    
+        print(
+            f"Confidence only | "
+            f"Coverage: {best_metrics['coverage']:.4f} | "
+            f"Accepted acc: {best_metrics['accepted_accuracy']:.4f} | "
+            f"Rejected: {best_metrics['num_rejected']}"
+        )
+    
+        # Current best percentile configuration
+        # None means no class feature filter is currently selected
+        current_percentiles = None
+    
+        for class_idx in range(self.num_classes):
+    
+            print(f"\nSearching percentiles for class {class_idx}")
+    
+            best_candidate_for_this_class = None
+            best_metrics_for_this_class = best_metrics
+            best_score_for_this_class = best_score
+            best_percentiles_for_this_class = current_percentiles
+    
+            for p_low, p_high in percentile_candidates:
+    
+                # If no feature filter has been selected yet, start with a neutral
+                # configuration and only activate the current class.
+                if current_percentiles is None:
+                    candidate_percentiles = {
+                        c: (0, 100)
+                        for c in range(self.num_classes)
+                    }
+                else:
+                    candidate_percentiles = current_percentiles.copy()
+    
+                candidate_percentiles[class_idx] = (p_low, p_high)
+    
+                data_analysis.compute_limits_per_class(
+                    train_data,
+                    class_percentiles=candidate_percentiles
+                )
+    
+                metrics = self.evaluate_with_class_and_confidence_filter(
+                    split="val",
+                    features=val_features,
+                    data_analysis=data_analysis,
+                    class_thresholds=class_thresholds
+                )
+    
+                coverage = metrics["coverage"]
+                accepted_accuracy = metrics["accepted_accuracy"]
+    
+                print(
+                    f"Class {class_idx} | Percentiles {p_low}-{p_high} | "
+                    f"Coverage: {coverage:.4f} | "
+                    f"Accepted acc: {accepted_accuracy:.4f} | "
+                    f"Rejected: {metrics['num_rejected']}"
+                )
+    
+                if coverage < min_coverage:
+                    continue
+    
+                score = accepted_accuracy + 0.01 * coverage
+    
+                if score > best_score_for_this_class:
+                    best_score_for_this_class = score
+                    best_metrics_for_this_class = metrics
+                    best_candidate_for_this_class = (p_low, p_high)
+                    best_percentiles_for_this_class = candidate_percentiles.copy()
+    
+            if best_candidate_for_this_class is not None:
+                current_percentiles = best_percentiles_for_this_class
+                best_class_percentiles = current_percentiles.copy()
+                best_metrics = best_metrics_for_this_class
+                best_score = best_score_for_this_class
+    
+                print(
+                    f"Selected for class {class_idx}: "
+                    f"{best_candidate_for_this_class[0]}-{best_candidate_for_this_class[1]}"
+                )
+            else:
+                print(f"No percentile filter selected for class {class_idx}")
+    
+        print("\nBest configuration:")
+    
+        if best_class_percentiles is None:
+            print("Confidence only. No class percentile filter selected.")
+        else:
+            data_analysis.compute_limits_per_class(
+                train_data,
+                class_percentiles=best_class_percentiles
+            )
+    
+            for class_idx, (p_low, p_high) in best_class_percentiles.items():
+                print(f"Class {class_idx}: {p_low}-{p_high}")
+    
         print(f"Coverage: {best_metrics['coverage']:.4f}")
         print(f"Accepted acc: {best_metrics['accepted_accuracy']:.4f}")
-        print("---------------------------------------------------------\n")
+        print("-----------------------------------------------------------\n")
     
-        return best_p_low, best_p_high, best_metrics
-
+        return best_class_percentiles, best_metrics
 
 """
 Internal dataset used only by Model.

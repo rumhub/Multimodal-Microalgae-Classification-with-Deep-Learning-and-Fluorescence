@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import copy
 import pandas as pd
 import random
+import os
+import re
 from collections import defaultdict
 from sklearn.model_selection import train_test_split
 
@@ -14,6 +16,263 @@ class DataAnalysis:
         self.channel_limits = None
         self.global_channel_limits = None
     
+    """
+    @brief: Plots a grouped bar chart from fluorescence RGB channel statistics.
+    
+    @param summary: DataFrame returned by analyze_fluorescence_rgb_channels
+    @param value_col: Column to plot, e.g. "mean", "std", "saturated_%"
+    @param ylabel: Y-axis label
+    @param title: Plot title
+    @param save_path: Path where the figure will be saved. If None, it is only shown.
+    """
+    def plot_rgb_channel_summary(self, summary, value_col, ylabel, title, save_path=None):
+
+    
+        fluorescence_channels = ["FLR_1", "FLR_2", "FLR_3"]
+        rgb_channels = ["Blue", "Green", "Red"]
+    
+        channel_colors = {
+        "Blue": "#4C78A8",   # muted blue
+        "Green": "#59A14F",  # muted green
+        "Red": "#C44E52",    # muted red
+        }
+        
+        x = np.arange(len(fluorescence_channels))
+        width = 0.25
+    
+        plt.figure(figsize=(9, 5))
+    
+        for i, rgb_channel in enumerate(rgb_channels):
+            values = []
+    
+            for fluorescence_channel in fluorescence_channels:
+                row = summary[
+                    (summary["fluorescence_channel"] == fluorescence_channel) &
+                    (summary["rgb_channel"] == rgb_channel)
+                ]
+    
+                if len(row) == 0:
+                    values.append(0.0)
+                else:
+                    values.append(float(row[value_col].iloc[0]))
+    
+            plt.bar(
+                x + (i - 1) * width,
+                values,
+                width,
+                label=rgb_channel,
+                color=channel_colors[rgb_channel]
+            )
+    
+        plt.xticks(x, fluorescence_channels)
+        plt.ylabel(ylabel)
+        plt.title(title)
+        plt.legend()
+        plt.tight_layout()
+    
+        if save_path is not None:
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    
+        plt.show()
+        plt.close()
+    
+    """
+    @brief: Analyzes BGR/RGB channel statistics for each fluorescence image type.
+
+    This function helps decide which color channel is more informative for each
+    fluorescence channel exported by Holodetect. It computes summary statistics
+    and optionally saves bar plots for visual inspection.
+
+    @param img_paths: Dictionary with the microalgae images
+    @param save_dir: Directory where plots will be saved. If None, plots are only shown.
+
+    @return: Pandas DataFrame with channel statistics
+    """
+    def analyze_fluorescence_rgb_channels(self, img_paths, save_dir=None):
+
+    
+        fluorescence_fields = {
+            "flr_1": "FLR_1",
+            "flr_2": "FLR_2",
+            "flr_3": "FLR_3"
+        }
+    
+        data = []
+    
+        for img_name, fields in img_paths.items():
+    
+            for field_key, field_name in fluorescence_fields.items():
+    
+                if field_key not in fields:
+                    continue
+    
+                img = cv2.imread(str(fields[field_key]), cv2.IMREAD_COLOR)
+    
+                if img is None:
+                    continue
+    
+                # OpenCV reads color images in BGR order.
+                channels = {
+                    "Blue": img[:, :, 0],
+                    "Green": img[:, :, 1],
+                    "Red": img[:, :, 2],
+                }
+    
+                for channel_name, channel_img in channels.items():
+    
+                    data.append({
+                        "image": img_name,
+                        "fluorescence_channel": field_name,
+                        "rgb_channel": channel_name,
+                        "min": float(np.min(channel_img)),
+                        "max": float(np.max(channel_img)),
+                        "mean": float(np.mean(channel_img)),
+                        "std": float(np.std(channel_img)),
+                        "nonzero_%": float(np.mean(channel_img > 0) * 100),
+                        "saturated_%": float(np.mean(channel_img >= 255) * 100),
+                    })
+    
+        df = pd.DataFrame(data)
+    
+        if df.empty:
+            print("No fluorescence images found.")
+            return df
+    
+        summary = (
+            df.groupby(["fluorescence_channel", "rgb_channel"])
+            .agg({
+                "min": "mean",
+                "max": "mean",
+                "mean": "mean",
+                "std": "mean",
+                "nonzero_%": "mean",
+                "saturated_%": "mean",
+            })
+            .reset_index()
+        )
+    
+        pd.set_option("display.max_columns", None)
+        print(summary)
+    
+        # ------------------------------------------------------
+        # Plot summary statistics
+        # ------------------------------------------------------
+        if save_dir is not None:
+            os.makedirs(save_dir, exist_ok=True)
+    
+        self.plot_rgb_channel_summary(
+            summary,
+            value_col="mean",
+            ylabel="Mean intensity",
+            title="Mean intensity by fluorescence channel and RGB channel",
+            save_path=None if save_dir is None else os.path.join(save_dir, "fluorescence_rgb_mean_intensity.png")
+        )
+    
+        self.plot_rgb_channel_summary(
+            summary,
+            value_col="std",
+            ylabel="Standard deviation",
+            title="Intensity variability by fluorescence channel and RGB channel",
+            save_path=None if save_dir is None else os.path.join(save_dir, "fluorescence_rgb_std.png")
+        )
+    
+        self.plot_rgb_channel_summary(
+            summary,
+            value_col="saturated_%",
+            ylabel="Saturated pixels (%)",
+            title="Saturation percentage by fluorescence channel and RGB channel",
+            save_path=None if save_dir is None else os.path.join(save_dir, "fluorescence_rgb_saturation.png")
+        )
+    
+        return summary
+    
+    """
+    @brief: Verifies whether the composite fluorescence image matches the
+            individual fluorescence channels
+
+    The dataset contains three individual fluorescence images:
+        - flr_1
+        - flr_2
+        - flr_3
+
+    and one composite fluorescence image:
+        - flu
+
+    This function checks whether:
+        - the red channel of flu matches the red channel of flr_1
+        - the green channel of flu matches the red channel of flr_2
+        - the blue channel of flu matches the red channel of flr_3
+
+    OpenCV reads color images in BGR order, so:
+        - channel 0 = Blue
+        - channel 1 = Green
+        - channel 2 = Red
+
+    @param img_paths: Dictionary with the microalgae image paths
+    @param num_samples: Number of random samples to verify
+    @param seed: Random seed for reproducibility
+
+    @return: True if all checked samples satisfy the expected relation, False otherwise
+    """
+    def verify_flu_composition(self, img_paths, num_samples=300, seed=42):
+    
+        # Convert dictionary items to a list so random sampling can be applied
+        items = list(img_paths.items())
+    
+        # Avoid requesting more samples than available
+        num_samples = min(num_samples, len(items))
+    
+        # Select random samples reproducibly
+        rng = random.Random(seed)
+        selected_items = rng.sample(items, num_samples)
+    
+        all_ok = True
+    
+        for img_name, fields in selected_items:
+    
+            # Read individual fluorescence images
+            flr_1 = cv2.imread(str(fields["flr_1"]), cv2.IMREAD_COLOR)
+            flr_2 = cv2.imread(str(fields["flr_2"]), cv2.IMREAD_COLOR)
+            flr_3 = cv2.imread(str(fields["flr_3"]), cv2.IMREAD_COLOR)
+    
+            # Read composite fluorescence image
+            flu = cv2.imread(str(fields["flu"]), cv2.IMREAD_COLOR)
+    
+            # Skip or fail if any image could not be read
+            if flr_1 is None or flr_2 is None or flr_3 is None or flu is None:
+                print(f"[ERROR] Could not read one or more fluorescence images for {img_name}")
+                all_ok = False
+                continue
+    
+            # Extract red channel from individual fluorescence images
+            # Individual fluorescence images store their signal in the red channel
+            flr_1_red = flr_1[:, :, 2]
+            flr_2_red = flr_2[:, :, 2]
+            flr_3_red = flr_3[:, :, 2]
+    
+            # Extract B, G and R channels from the composite fluorescence image
+            flu_blue = flu[:, :, 0]
+            flu_green = flu[:, :, 1]
+            flu_red = flu[:, :, 2]
+    
+            # Compare the composition channels against the individual fluorescence channels
+            red_matches = np.array_equal(flu_red, flr_1_red)
+            green_matches = np.array_equal(flu_green, flr_2_red)
+            blue_matches = np.array_equal(flu_blue, flr_3_red)
+    
+            if not (red_matches and green_matches and blue_matches):
+                all_ok = False
+                print(f"[MISMATCH] {img_name}")
+                print(f"  FLU red   == FLR_1 red: {red_matches}")
+                print(f"  FLU green == FLR_2 red: {green_matches}")
+                print(f"  FLU blue  == FLR_3 red: {blue_matches}")
+    
+        if all_ok:
+            print(f"All {num_samples} checked samples match the expected FLU composition")
+        else:
+            print("Some samples do not match the expected FLU composition")
+    
+        return all_ok
     
     '''
     @brief: Calculates and stores information about each microalga
@@ -52,12 +311,11 @@ class DataAnalysis:
         for img_name, fields in img_paths.items():
             # Read mask channel
             mask = self.read_mask_img(fields["mask"])
-            fluor_1 = self.read_red_fluor_img(fields["flr_1"])
-            fluor_2 = self.read_red_fluor_img(fields["flr_2"])
-            fluor_3 = self.read_red_fluor_img(fields["flr_3"])
-            fluor = self.read_red_fluor_img(fields["flu"])
+            fluor_1 = self.read_fluor_img(fields["flr_1"])
+            fluor_2 = self.read_fluor_img(fields["flr_2"])
+            fluor_3 = self.read_fluor_img(fields["flr_3"])
+            fluor = self.read_fluor_img(fields["flu"])
 
-            
             # Calculate mask contours
             mask_contours = self.calculate_mask_contours(mask)
             
@@ -212,6 +470,21 @@ class DataAnalysis:
     
         summary_df = df.describe().T
     
+        # Add saturation percentage
+        saturated_percentages = {}
+    
+        for col in cols:
+            max_value = df[col].max()
+    
+            if max_value <= 1.0:
+                saturation_value = 1.0
+            else:
+                saturation_value = 255.0
+    
+            saturated_percentages[col] = (df[col] >= saturation_value).mean() * 100
+    
+        summary_df["saturated_%"] = pd.Series(saturated_percentages)
+    
         print(summary_df)
     
         return summary_df
@@ -286,16 +559,23 @@ class DataAnalysis:
         _, binary = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
         
         return binary
-        
-    def read_red_fluor_img(self, img_path):
-        # Read fluorescence image in color
-        img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+    
+    """
+    @brief: Reads a fluorescence image as a single-channel grayscale image
+
+    Fluorescence images may be stored as RGB/BGR visualizations, so reading in grayscale provides a
+    single intensity image using all available channels
+    """    
+    def read_fluor_img(self, img_path):
+
+        img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
     
         if img is None:
             return None
     
-        # OpenCV uses BGR: channel 2 is red
-        return img[:, :, 2]
+        # Read red channel
+        return img[:,:,2]
+
 
     
     def calculate_mask_contours(self, mask_img):
@@ -495,7 +775,7 @@ class DataAnalysis:
     @param xlabel: Label of the X axis
     @param ylabel: Label of the Y axis
     '''
-    def show_histogram(self, data, title, xlabel="", ylabel=""):
+    def show_histogram(self, data, title, xlabel="", ylabel="", save_dir=None):
             
         if len(data) == 0:
             return
@@ -506,7 +786,19 @@ class DataAnalysis:
         plt.xlabel(xlabel)
         plt.ylabel(ylabel)
         plt.title(title)
+        
+        if save_dir is not None:
+            os.makedirs(save_dir, exist_ok=True)
+        
+            # Create safe filename from title
+            filename = re.sub(r"[^a-zA-Z0-9_\-]+", "_", title)
+            filename = filename.strip("_") + ".png"
+        
+            save_path = os.path.join(save_dir, filename)
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        
         plt.show()
+        plt.close()
     
     
     '''
@@ -539,128 +831,17 @@ class DataAnalysis:
     '''
     def calculate_outliers(self, data):
         pass
-        
-    '''
-    @brief: Cleans the data, clean outliers and artifacts that are not microalgae
-    @param data: Data to be cleaned
-    
-    '''
-    def clean_data(self, data, debug = 0):
-        
-        # Get channel names
-        channel_names = [value for name, value in vars(config.Channels).items() if not name.startswith("__")]
-
-        # ---------------------------------------
-        # ---------- Special filtering ----------
-        # ---------------------------------------
-
-        # ----- Remove data with mask area of 0  -----
-        # Create a copy of the original data (list of img paths)
-        img_names = list(data.keys())
-        
-        for img_name in img_names:
-            # Avoid KeyError if img doesn't have channel channel_name
-            value = data[img_name].get(config.Channels.MASK_AREA)
-
-            # Remove negative and 0 values
-            if value is None or value <= 0.001:
-                del data[img_name]
-
-        # ---------------------------------------
-        # ---------- Common filtering ----------
-        # ---------------------------------------
-        
-        # ---------- Remove data outside percentiles ----------
-        imgs_to_remove = []
-        # For each class or microalga type
-        for current_class in config.CLASS_PREFIXES:
             
-            class_data = {}
-            
-            # Get images per class
-            for img_name, fields in data.items():
-                
-                if fields.get("class") == config.CLASS_PREFIXES[current_class]:
-                    class_data[img_name] = fields
-           
-            # For each calculated channel (mask_area, mask_perimeter, etc)
-            for channel_name in channel_names:
-
-                # Get all the data for a determined channel
-                channel_data = self.get_channel(class_data, channel_name)
-                
-                if channel_data is not None and len(channel_data) > 0:
-                    
-                    # Calculate percentiles per channel
-                    p_low = np.percentile(channel_data, 5)
-                    p_high = np.percentile(channel_data, 95)
-            
-                    # Filter data outside percentiles
-                    img_names = list(class_data.keys())
-                    for img_name in img_names:
-                        # Avoid KeyError if img doesn't have channel channel_name
-                        value = data[img_name].get(channel_name)
-                        
-                        # Mark data outside of percentiles to be removed
-                        if img_name not in imgs_to_remove and value is not None:
-                            if value < p_low or value > p_high:
-                                imgs_to_remove.append(img_name)
-            
-           
-        # Create a copy of the data before filtering
-        if debug == 1:
-            data_copy = copy.deepcopy(data)
-       
-        # Remove images
-        for img in imgs_to_remove:
-            if img in data:
-                del data[img]
-                
-        # ------------------------------------------------------
-        # -------- Show information after filtering ------------
-        # ------------------------------------------------------
-        if debug == 1:
-            for current_class in config.CLASS_PREFIXES: # For each class or microalga type
-                class_data = {}
-                class_data_filtered = {}
-
-                # Get images per class
-                for img_name, fields in data.items():
-                    if fields.get("class") == config.CLASS_PREFIXES[current_class]:
-                        class_data_filtered[img_name] = fields
-               
-                # Get images per class
-                for img_name, fields in data_copy.items():
-                    if fields.get("class") == config.CLASS_PREFIXES[current_class]:
-                        class_data[img_name] = fields 
-               
-                # For each calculated channel (mask_area, mask_perimeter, etc)
-                for channel_name in channel_names:
-    
-                    # Get all the data for a determined channel
-                    channel_data = self.get_channel(class_data, channel_name)
-                    channel_data_filtered = self.get_channel(class_data_filtered, channel_name)
-                    
-                    if channel_data != None:
-                        # Show general information about current channel
-                        self.show_histogram(channel_data, f"Distribution of {channel_name} in class {config.CLASS_NAMES[current_class]} before filtering", channel_name, "Frecuency")
-                        self.describe_channel(channel_data, f"------------ {channel_name} DESCRIPTION BEFORE FILTERING ------------")
-                        
-                        # Show general information about current channel
-                        channel_data = self.get_channel(class_data, channel_name)
-                        self.show_histogram(channel_data_filtered, f"Distribution of {channel_name} in class {config.CLASS_NAMES[current_class]} after filtering", channel_name, "Frecuency")
-                        self.describe_channel(channel_data_filtered, f"------------ {channel_name} DESCRIPTION AFTER FILTERING ------------")
-            
-        return data
-    
     
     '''
     @brief: Calculates limits for each class and channel
     @param data: Data to calculate limits from (should be training, not validation or test)
-    @param p_low: low percentile to be used
-    @param p_high: high percentile to be used
+    @param p_low: default low percentile to be used
+    @param p_high: default high percentile to be used
+    @param class_percentiles: optional dictionary with class-specific percentiles.
+                              Example: {0: (1, 99), 1: (2, 98), 2: (5, 95)}
     '''
-    def compute_limits_per_class(self, data, p_low=1, p_high=95):
+    def compute_limits_per_class(self, data, p_low=1, p_high=95, class_percentiles=None):
         
         limits = {}
         
@@ -669,6 +850,14 @@ class DataAnalysis:
         
         # For each class
         for class_prefix, class_id in config.CLASS_PREFIXES.items():
+            
+            # Select the percentile range for this class
+            # If class_percentiles is provided, use the class-specific range.
+            # Otherwise, use the default p_low and p_high values.
+            if class_percentiles is not None and class_id in class_percentiles:
+                current_p_low, current_p_high = class_percentiles[class_id]
+            else:
+                current_p_low, current_p_high = p_low, p_high
             
             # Get data for current class
             class_data = {}
@@ -692,9 +881,9 @@ class DataAnalysis:
                 if channel_data is None or len(channel_data) == 0:
                     continue
                 
-                # Calculate percentiles
-                low = np.percentile(channel_data, p_low)
-                high = np.percentile(channel_data, p_high)
+                # Calculate class-specific percentiles
+                low = np.percentile(channel_data, current_p_low)
+                high = np.percentile(channel_data, current_p_high)
                 
                 # Store limits
                 limits[class_id][channel] = {
@@ -801,6 +990,11 @@ class DataAnalysis:
     
         if ratio_key in global_limits:
             global_limits[ratio_key]["max"] = 1.0
+            
+        # MASK_AREA tends to saturate at its lower value, so its minimum limit is fixed to 0.0
+        mask_key = config.Channels.MASK_AREA
+        if mask_key in global_limits:
+            global_limits[mask_key]["min"] = 0.0
         
         self.global_channel_limits = global_limits
     
@@ -809,7 +1003,11 @@ class DataAnalysis:
     @param data: Data to be cleaned
     
     '''
-    def global_filtering(self, data, debug = 0):
+    def global_filtering(self, data, debug = 0, save_dir = None):
+        
+        # Create a copy of the data before filtering
+        if debug == 1:
+            data_copy = copy.deepcopy(data)
         
         # ---------------------------------------
         # ---------- Special filtering ----------
@@ -819,6 +1017,11 @@ class DataAnalysis:
         # Create a copy of the original data (list of img paths)
         img_names = list(data.keys())
         
+        fluorescence_channels = [
+            config.Channels.MEAN_FLUORESCENCE_FLU2,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU2,
+        ]
+        
         for img_name in img_names:
             # Avoid KeyError if img doesn't have channel channel_name
             value = data[img_name].get(config.Channels.MASK_AREA)
@@ -826,7 +1029,16 @@ class DataAnalysis:
             # Remove negative and 0 values
             if value is None or value <= 0.001:
                 del data[img_name]
-
+                continue    # Make sure we only delete the img 1 time
+                
+            # ----- Remove data with low fluorescence -----
+            for channel_name in fluorescence_channels:
+                value = data[img_name].get(channel_name)
+            
+                if value is None or value < 0.05:
+                    del data[img_name]
+                    break   # Make sure we only delete the img 1 time
+                    
         # ---------------------------------------
         # ---------- Common filtering ----------
         # ---------------------------------------
@@ -850,13 +1062,16 @@ class DataAnalysis:
                 # Avoid KeyError if img doesn't have channel channel_name
                 value = fields.get(channel_name)
                 
-                if value is not None and (value < p_low or value > p_high):
-                    imgs_to_remove.add(img_name)
-            
-           
-        # Create a copy of the data before filtering
-        if debug == 1:
-            data_copy = copy.deepcopy(data)
+                # For fluorescence channels, only remove low values
+                # High values are preserved because fluorescence may saturate
+                if channel_name in fluorescence_channels:
+                    if value < p_low:
+                        imgs_to_remove.add(img_name)
+                
+                # For the rest of the channels, remove both low and high outliers
+                else:
+                    if value < p_low or value > p_high:
+                        imgs_to_remove.add(img_name)
        
         # Remove images
         for img in imgs_to_remove:
@@ -892,11 +1107,11 @@ class DataAnalysis:
                     
                     if channel_data is not None and len(channel_data) > 0:
                         # Show general information about current channel
-                        self.show_histogram(channel_data, f"Distribution of {channel_name} in class {config.CLASS_NAMES[class_prefix]} before filtering", channel_name, "Frecuency")
+                        self.show_histogram(channel_data, f"Distribution of {channel_name} in class {config.CLASS_NAMES[class_prefix]} before filtering", channel_name, "Frecuency", save_dir)
                         self.describe_channel(channel_data, f"------------ {channel_name} DESCRIPTION BEFORE FILTERING ------------")
                         
                         # Show general information about current channel
-                        self.show_histogram(channel_data_filtered, f"Distribution of {channel_name} in class {config.CLASS_NAMES[class_prefix]} after filtering", channel_name, "Frecuency")
+                        self.show_histogram(channel_data_filtered, f"Distribution of {channel_name} in class {config.CLASS_NAMES[class_prefix]} after filtering", channel_name, "Frecuency", save_dir)
                         self.describe_channel(channel_data_filtered, f"------------ {channel_name} DESCRIPTION AFTER FILTERING ------------")
             
         return data

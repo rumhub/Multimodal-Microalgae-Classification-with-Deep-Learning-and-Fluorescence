@@ -71,6 +71,8 @@ def main():
     test_data = data_analysis.get_img_metrics(test_data)
 
     # Analyze only train
+    data_analysis.verify_flu_composition(train_data)    # Verify that FLU = RED_CHANNEL(FLU_1 + FLU2 + FLU3)
+    data_analysis.analyze_fluorescence_rgb_channels(train_data)     # See which rgb channel has more info in (FLU_1, FLU2, FLU3)
     data_analysis.plot_fluorescence_correlation(train_data)
     fluorescence_summary = data_analysis.print_fluorescence_summary(train_data)
     data_analysis.plot_mofologic_correlation(train_data)
@@ -85,7 +87,7 @@ def main():
     data_analysis.compute_global_limits(train_data, p_low=1, p_high=99)
 
     # Global filtering
-    train_data = data_analysis.global_filtering(train_data, debug=0)
+    train_data = data_analysis.global_filtering(train_data, debug=1, save_dir="../data_info/plots/global_filtering")
     val_data = data_analysis.global_filtering(val_data, debug=0)
     test_data = data_analysis.global_filtering(test_data, debug=0)
 
@@ -108,7 +110,7 @@ def main():
     model = Model(
         # selected_channels= config.IMG_SUFFIXES,
         # selected_channels=["amp", "phase", "flr_2"],
-        selected_channels=["amp", "phase", "flr_2", "mask"],
+        selected_channels=["amp", "flr_1", "flr_2", "flr_3", "mask", "phase"],
         num_classes= len(config.CLASS_PREFIXES),
     )
     
@@ -153,8 +155,8 @@ def main():
     for class_idx, threshold in class_thresholds.items():
         print(f"Class {class_idx}: {threshold:.2f}")
     
-    # Compute and select best percentil filter per class
-    best_p_low, best_p_high, val_filter_metrics = model.tune_class_filter_percentiles(
+    # Compute and select best percentile filter per class
+    class_percentiles, val_filter_metrics = model.tune_class_filter_percentiles(
         train_data=train_data,
         val_features=val_features,
         data_analysis=data_analysis,
@@ -169,30 +171,50 @@ def main():
         min_coverage=0.80
     )
     
-    print(f"Selected class filter percentiles: {best_p_low}-{best_p_high}")
+    if class_percentiles is None:
+        print("Selected filter: confidence thresholds only")
+    else:
+        print("Selected class filter percentiles:")
+        for class_idx, percentiles in class_percentiles.items():
+            p_low, p_high = percentiles
+            print(f"Class {class_idx}: {p_low}-{p_high}")
+    
     print(f"Validation coverage: {val_filter_metrics['coverage']:.4f}")
     print(f"Validation accepted accuracy: {val_filter_metrics['accepted_accuracy']:.4f}")
     
 
     # =================== FINAL MODEL PERFORMANCE ===================
     print("------------------ FINAL RESULTS ------------------")
-    filtered_metrics = model.evaluate_with_class_and_confidence_filter(
-        split="test",
-        features=test_features,
-        data_analysis=data_analysis,
-        class_thresholds=class_thresholds
-    )
     
-    print("\nTest results with class filter + confidence filter:")
+    if class_percentiles is None:
+        filtered_metrics = model.evaluate_with_confidence_filter(
+            split="test",
+            class_thresholds=class_thresholds
+        )
+    
+        print("\nTest results with confidence filter only:")
+    
+    else:
+        filtered_metrics = model.evaluate_with_class_and_confidence_filter(
+            split="test",
+            features=test_features,
+            data_analysis=data_analysis,
+            class_thresholds=class_thresholds
+        )
+    
+        print("\nTest results with class filter + confidence filter:")
+    
     print(f"Total samples: {filtered_metrics['total_samples']}")
     print(f"Accepted predictions: {filtered_metrics['num_accepted']}")
     print(f"Rejected predictions: {filtered_metrics['num_rejected']}")
     print(f"Coverage: {filtered_metrics['coverage']:.4f}")
     print(f"Original accuracy: {filtered_metrics['original_accuracy']:.4f}")
     print(f"Accuracy on accepted predictions: {filtered_metrics['accepted_accuracy']:.4f}")
-    print(f"Rejected by class filter: {filtered_metrics['rejected_by_class_filter']}")
-    print(f"Rejected by confidence: {filtered_metrics['rejected_by_confidence']}")
-    print(f"Rejected by both: {filtered_metrics['rejected_by_both']}")
+    
+    if class_percentiles is not None:
+        print(f"Rejected by class filter: {filtered_metrics['rejected_by_class_filter']}")
+        print(f"Rejected by confidence: {filtered_metrics['rejected_by_confidence']}")
+        print(f"Rejected by both: {filtered_metrics['rejected_by_both']}")
     
     
     
