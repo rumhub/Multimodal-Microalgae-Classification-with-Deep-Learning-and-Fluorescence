@@ -306,7 +306,7 @@ class DataAnalysis:
         # Metrics used are the ones with and "x" instead of a "-".
         # At the moment, every metric used calculates the same value as holodetect, except for MASK_CIRCULARITY
         
-        # img_name is the common name of the microalga, and field is each field from config.IMG_SUFFIXES
+        # img_name is the common name of the microalga, and field is each field from config.INITIAL_IMG_SUFFIXES
         # Example: img_name = chorella124514123, field
         for img_name, fields in img_paths.items():
             # Read mask channel
@@ -361,7 +361,7 @@ class DataAnalysis:
         microalga = img_paths[name]
         
         # Channels only (exclude class)
-        channels = [ch for ch in config.IMG_SUFFIXES if ch != "class"]
+        channels = [ch for ch in config.INITIAL_IMG_SUFFIXES if ch != "class"]
     
         # Get microalga's class name
         class_name = list(config.CLASS_NAMES.values())[microalga["class"]]
@@ -397,11 +397,9 @@ class DataAnalysis:
             config.Channels.MEAN_FLUORESCENCE_FLU1,
             config.Channels.MEAN_FLUORESCENCE_FLU2,
             config.Channels.MEAN_FLUORESCENCE_FLU3,
-            config.Channels.MEAN_FLUORESCENCE_FLU,
             config.Channels.FLUORESCENT_AREA_RATIO_FLU1,
             config.Channels.FLUORESCENT_AREA_RATIO_FLU2,
             config.Channels.FLUORESCENT_AREA_RATIO_FLU3,
-            config.Channels.FLUORESCENT_AREA_RATIO_FLU,
         ]
         self.plot_correlation(cols, img_paths, "Correlation matrix of fluorescence channels")
     
@@ -494,11 +492,9 @@ class DataAnalysis:
             config.Channels.MEAN_FLUORESCENCE_FLU1,
             config.Channels.MEAN_FLUORESCENCE_FLU2,
             config.Channels.MEAN_FLUORESCENCE_FLU3,
-            config.Channels.MEAN_FLUORESCENCE_FLU,
             config.Channels.FLUORESCENT_AREA_RATIO_FLU1,
             config.Channels.FLUORESCENT_AREA_RATIO_FLU2,
-            config.Channels.FLUORESCENT_AREA_RATIO_FLU3,
-            config.Channels.FLUORESCENT_AREA_RATIO_FLU,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU3
         ]
         
         return self.print_summary(cols, img_paths)
@@ -1129,7 +1125,7 @@ class DataAnalysis:
     def split_data_from_features(self, img_paths):
     
         # Example: amp, flr_1, flr_2, flr_3, flu, mask, phase
-        image_keys = set(config.IMG_SUFFIXES)
+        image_keys = set(config.SELECTED_IMG_SUFFIXES)
     
         # Selected calculated features used for filtering/tabular analysis.
         feature_keys = set(config.SELECTED_FEATURES)
@@ -1192,6 +1188,26 @@ class DataAnalysis:
             }
     
         return cleaned_data
+    
+    """
+    @brief: Removes image channels that are not selected
+            Calculated features are kept
+    """
+    def remove_unselected_image_channels(self, img_paths):
+    
+        selected_img_suffixes = set(config.SELECTED_IMG_SUFFIXES)
+        initial_img_suffixes = set(config.INITIAL_IMG_SUFFIXES)
+    
+        for img_name, fields in img_paths.items():
+    
+            # list(fields.keys()) because we modify the dictionary while iterating
+            for key in list(fields.keys()):
+    
+                # Remove only image channels that are not selected
+                if key in initial_img_suffixes and key not in selected_img_suffixes:
+                    del fields[key]
+    
+        return img_paths
     
     """
     @brief: Forces all classes to have the same number of samples by undersampling

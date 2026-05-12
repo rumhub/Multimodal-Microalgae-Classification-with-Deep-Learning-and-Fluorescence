@@ -84,7 +84,7 @@ class DataReader:
                                 ## GROUP IMAGE CHANNELS PER MICROALGA ##
                                 ########################################
                                 
-                                for suffix in config.IMG_SUFFIXES:
+                                for suffix in config.INITIAL_IMG_SUFFIXES:
                                     if name.endswith(suffix):
                                         # Get base image name 
                                         # Example:
@@ -115,7 +115,7 @@ class DataReader:
     def clean_incomplete_data(self, data):
         
         clean_data = {}
-        n_channels = len(config.IMG_SUFFIXES) + 1  # IMG_SUFFIXES + class
+        n_channels = len(config.INITIAL_IMG_SUFFIXES) + 1  # IMG_SUFFIXES + class
         
         
         for img_name, fields in data.items():

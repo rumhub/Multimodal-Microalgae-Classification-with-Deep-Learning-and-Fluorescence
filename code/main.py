@@ -31,7 +31,7 @@ def main():
 
     # If True, the CNN is trained from scratch and saved
     # If False, a previously saved model is loaded
-    TRAIN_MODEL = True
+    TRAIN_MODEL = False
     
     # Convert model path to a Path object
     model_path = Path(config.MODEL_PATH)
@@ -70,14 +70,22 @@ def main():
     val_data = data_analysis.get_img_metrics(val_data)
     test_data = data_analysis.get_img_metrics(test_data)
 
-    # Analyze only train
+    # Analyze fluorescence channels composition (only train)
     data_analysis.verify_flu_composition(train_data)    # Verify that FLU = RED_CHANNEL(FLU_1 + FLU2 + FLU3)
     data_analysis.analyze_fluorescence_rgb_channels(train_data)     # See which rgb channel has more info in (FLU_1, FLU2, FLU3)
+    
+    # Filter out redundant fluorescence channels (flu)
+    train_data = data_analysis.remove_unselected_image_channels(train_data)
+    val_data = data_analysis.remove_unselected_image_channels(val_data)
+    test_data = data_analysis.remove_unselected_image_channels(test_data)
+    
+    # Analize correlation (only train)
     data_analysis.plot_fluorescence_correlation(train_data)
     fluorescence_summary = data_analysis.print_fluorescence_summary(train_data)
     data_analysis.plot_mofologic_correlation(train_data)
     data_analysis.plot_final_variables_correlation(train_data)
 
+    
     # Filter out redundant features
     train_data = data_analysis.remove_unselected_features(train_data)
     val_data = data_analysis.remove_unselected_features(val_data)
@@ -110,7 +118,7 @@ def main():
     model = Model(
         # selected_channels= config.IMG_SUFFIXES,
         # selected_channels=["amp", "phase", "flr_2"],
-        selected_channels=["amp", "flr_1", "flr_2", "flr_3", "mask", "phase"],
+        selected_channels=config.SELECTED_IMG_SUFFIXES,
         num_classes= len(config.CLASS_PREFIXES),
     )
     

@@ -16,7 +16,7 @@ class CSVWriter:
             row = {"base_name": base_name}
     
             for k, v in fields.items():
-                if k not in config.IMG_SUFFIXES:
+                if k not in config.INITIAL_IMG_SUFFIXES:
                     row[k] = v
     
             rows.append(row)
