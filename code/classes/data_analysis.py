@@ -994,6 +994,7 @@ class DataAnalysis:
         
         self.global_channel_limits = global_limits
     
+    
     '''
     @brief: Cleans the data, clean outliers and artifacts that are not microalgae
     @param data: Data to be cleaned

@@ -48,6 +48,13 @@ class Model:
         # Loss function for multi-class classification
         self.criterion = nn.CrossEntropyLoss()
         
+        self.training_history = {
+        "train_loss": [],
+        "train_acc": [],
+        "val_loss": [],
+        "val_acc": [],
+        }
+            
 
     """
     @brief: Creates dataloaders from train, validation and test dictionaries.
@@ -72,7 +79,7 @@ class Model:
     @param learning_rate: Step size used by the optimizer to update the model weights
 
     """
-    def train(self, num_epochs=30, learning_rate=1e-4):
+    def train(self, num_epochs=30, learning_rate=1e-4, patience=40):
         
         # Check that the training DataLoader has already been created.
         # If not, the model cannot be trained.
@@ -84,9 +91,10 @@ class Model:
         best_val_acc = 0.0
         best_epoch = -1
         best_model_state = None
+        epochs_without_improvement = 0
     
         # Optimizer used to update the CNN weights during training
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate, weight_decay=1e-4)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate, weight_decay=5e-4)
 
     
         # Main training loop. Each iteration corresponds to one full pass
@@ -95,11 +103,19 @@ class Model:
             
             # Train the model for one epoch and obtain training loss and accuracy
             train_loss, train_acc = self._train_one_epoch(optimizer)
-    
+            
+            # Store training metrics
+            self.training_history["train_loss"].append(train_loss)
+            self.training_history["train_acc"].append(train_acc)
+
             # If a validation DataLoader exists, evaluate the model after
             # each training epoch.
             if self.val_loader is not None:
                 val_loss, val_acc = self.evaluate(split="val")
+                
+                # Store validation metrics
+                self.training_history["val_loss"].append(val_loss)
+                self.training_history["val_acc"].append(val_acc)
     
                 # Check whether the current model is better than all previous ones, based on
                 # validation loss
@@ -109,6 +125,7 @@ class Model:
                     best_val_loss = val_loss
                     best_val_acc = val_acc
                     best_epoch = epoch + 1
+                    epochs_without_improvement = 0
     
                     # Save a copy of the current model weights
                     #
@@ -126,6 +143,9 @@ class Model:
                 else:
                     # No marker is printed if the current epoch is not the best one
                     best_marker = ""
+                    
+                    # Count this epoch as not improvement
+                    epochs_without_improvement += 1
     
                 # Print training and validation metrics for the current epoch
                 print(
@@ -134,6 +154,14 @@ class Model:
                     f"Val loss: {val_loss:.4f} | Val acc: {val_acc:.4f}"
                     f"{best_marker}"
                 )
+                
+                if epochs_without_improvement >= patience:
+                    print(
+                        f"\nEarly stopping at epoch {epoch + 1}. "
+                        f"Best epoch: {best_epoch} | "
+                        f"Val loss: {best_val_loss:.4f} | Val acc: {best_val_acc:.4f}"
+                    )
+                    break
     
             else:
                 # If there is no validation set, only training metrics are printed
@@ -157,6 +185,140 @@ class Model:
                 f"with Val loss: {best_val_loss:.4f} | Val acc: {best_val_acc:.4f}"
             )
 
+
+    def plot_training_curves(self, save_dir=None):
+        """
+        @brief: Plots training and validation loss/accuracy curves.
+    
+        @param save_dir: Directory where the plots will be saved.
+                         If None, plots are only shown.
+        """
+    
+        import os
+        import matplotlib.pyplot as plt
+    
+        if len(self.training_history["train_loss"]) == 0:
+            print("No training history available. Train the model first.")
+            return
+    
+        epochs = np.arange(1, len(self.training_history["train_loss"]) + 1)
+    
+        if save_dir is not None:
+            os.makedirs(save_dir, exist_ok=True)
+    
+        best_epoch = None
+    
+        if len(self.training_history["val_loss"]) > 0:
+            best_epoch = int(np.argmin(self.training_history["val_loss"])) + 1
+            best_val_loss = self.training_history["val_loss"][best_epoch - 1]
+    
+        # -------------------------
+        # Loss curve
+        # -------------------------
+        plt.figure(figsize=(8, 5))
+    
+        plt.plot(
+            epochs,
+            self.training_history["train_loss"],
+            label="Train loss",
+            linewidth=1.8
+        )
+    
+        if len(self.training_history["val_loss"]) > 0:
+            plt.plot(
+                epochs,
+                self.training_history["val_loss"],
+                label="Validation loss",
+                linewidth=1.8
+            )
+    
+            plt.axvline(
+                best_epoch,
+                linestyle="--",
+                linewidth=1.2,
+                color="gray",
+                label=f"Best epoch: {best_epoch}"
+            )
+    
+            plt.scatter(
+                best_epoch,
+                best_val_loss,
+                color="black",
+                s=30,
+                zorder=3
+            )
+    
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
+        plt.title("Training and validation loss")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+    
+        if save_dir is not None:
+            plt.savefig(
+                os.path.join(save_dir, "training_validation_loss.png"),
+                dpi=300,
+                bbox_inches="tight"
+            )
+    
+        plt.show()
+        plt.close()
+    
+        # -------------------------
+        # Accuracy curve
+        # -------------------------
+        plt.figure(figsize=(8, 5))
+    
+        plt.plot(
+            epochs,
+            self.training_history["train_acc"],
+            label="Train accuracy",
+            linewidth=1.8
+        )
+    
+        if len(self.training_history["val_acc"]) > 0:
+            plt.plot(
+                epochs,
+                self.training_history["val_acc"],
+                label="Validation accuracy",
+                linewidth=1.8
+            )
+    
+            if best_epoch is not None:
+                plt.axvline(
+                    best_epoch,
+                    linestyle="--",
+                    linewidth=1.2,
+                    color="gray",
+                    label=f"Best epoch: {best_epoch}"
+                )
+    
+                plt.scatter(
+                    best_epoch,
+                    self.training_history["val_acc"][best_epoch - 1],
+                    color="black",
+                    s=30,
+                    zorder=3
+                )
+    
+        plt.xlabel("Epoch")
+        plt.ylabel("Accuracy")
+        plt.title("Training and validation accuracy")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+    
+        if save_dir is not None:
+            plt.savefig(
+                os.path.join(save_dir, "training_validation_accuracy.png"),
+                dpi=300,
+                bbox_inches="tight"
+            )
+    
+        plt.show()
+        plt.close()
+        
     """
     @brief: Evaluates the model on a selected dataset split
 
@@ -554,7 +716,7 @@ class Model:
             nn.AdaptiveAvgPool2d((1, 1)),
 
             nn.Flatten(),
-            nn.Dropout(0.3),
+            nn.Dropout(0.4),
             nn.Linear(256, self.num_classes)
         )
 

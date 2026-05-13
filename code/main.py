@@ -31,7 +31,7 @@ def main():
 
     # If True, the CNN is trained from scratch and saved
     # If False, a previously saved model is loaded
-    TRAIN_MODEL = False
+    TRAIN_MODEL = True
     
     # Convert model path to a Path object
     model_path = Path(config.MODEL_PATH)
@@ -119,6 +119,7 @@ def main():
         # selected_channels= config.IMG_SUFFIXES,
         # selected_channels=["amp", "phase", "flr_2"],
         selected_channels=config.SELECTED_IMG_SUFFIXES,
+        # selected_channels=["amp", "flr_1", "flr_2", "mask", "phase"],
         num_classes= len(config.CLASS_PREFIXES),
     )
     
@@ -133,6 +134,9 @@ def main():
     if TRAIN_MODEL:
         # Train the model from scratch
         model.train(num_epochs=300, learning_rate=1e-4)
+        
+        # Plot training curves
+        model.plot_training_curves(save_dir="../data_info/plots/training")
         
         # Save the trained model weights
         model.save(config.MODEL_PATH)
