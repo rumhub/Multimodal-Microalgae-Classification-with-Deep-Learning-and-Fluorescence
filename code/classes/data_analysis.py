@@ -314,7 +314,6 @@ class DataAnalysis:
             fluor_1 = self.read_fluor_img(fields["flr_1"])
             fluor_2 = self.read_fluor_img(fields["flr_2"])
             fluor_3 = self.read_fluor_img(fields["flr_3"])
-            fluor = self.read_fluor_img(fields["flu"])
 
             # Calculate mask contours
             mask_contours = self.calculate_mask_contours(mask)
@@ -329,19 +328,126 @@ class DataAnalysis:
             img_paths[img_name][config.Channels.MEAN_FLUORESCENCE_FLU1] = self.calculate_mean_fluorescence(fluor_1, mask)
             img_paths[img_name][config.Channels.MEAN_FLUORESCENCE_FLU2] = self.calculate_mean_fluorescence(fluor_2, mask)
             img_paths[img_name][config.Channels.MEAN_FLUORESCENCE_FLU3] = self.calculate_mean_fluorescence(fluor_3, mask)
-            img_paths[img_name][config.Channels.MEAN_FLUORESCENCE_FLU] = self.calculate_mean_fluorescence(fluor, mask)
             
             img_paths[img_name][config.Channels.FLUORESCENT_AREA_RATIO_FLU1] = self.calculate_fluorescent_area_ratio(fluor_1)
             img_paths[img_name][config.Channels.FLUORESCENT_AREA_RATIO_FLU2] = self.calculate_fluorescent_area_ratio(fluor_2)
             img_paths[img_name][config.Channels.FLUORESCENT_AREA_RATIO_FLU3] = self.calculate_fluorescent_area_ratio(fluor_3)
-            img_paths[img_name][config.Channels.FLUORESCENT_AREA_RATIO_FLU] = self.calculate_fluorescent_area_ratio(fluor)
-
 
 
             # print(f"Microalga: {img_name}")
             # print(f"Field: {field}")
         return img_paths
             
+    
+    def show_all_features_distributions_by_class(self, img_paths, save_dir=None, bins=30):
+        """
+        @brief: Shows one comparison histogram per feature, with all classes in the same plot.
+    
+        @param img_paths: Dictionary with the microalgae data
+        @param save_dir: Directory where figures will be saved.
+                         If None, figures are only shown.
+        @param bins: Number of histogram bins
+        """
+    
+        import os
+    
+        # Get all calculated feature names defined in config.Channels
+        feature_names = [
+            value
+            for key, value in vars(config.Channels).items()
+            if not key.startswith("__") and isinstance(value, str)
+        ]
+    
+        if save_dir is not None:
+            os.makedirs(save_dir, exist_ok=True)
+    
+        for feature_name in feature_names:
+            save_path = None
+    
+            if save_dir is not None:
+                save_path = os.path.join(
+                    save_dir,
+                    f"Distribution_of_{feature_name}_by_class.png"
+                )
+    
+            self.show_feature_distribution_by_class(
+                img_paths=img_paths,
+                feature_name=feature_name,
+                save_path=save_path,
+                bins=bins
+            )
+    
+    def show_feature_distribution_by_class(
+        self,
+        img_paths,
+        feature_name,
+        save_path=None,
+        bins=30
+    ):
+        """
+        @brief: Shows the distribution of one feature for all classes in the same plot.
+    
+        @param img_paths: Dictionary with the microalgae data
+        @param feature_name: Name of the feature to plot
+        @param save_path: Full path where the figure will be saved.
+                          If None, the figure is only shown.
+        @param bins: Number of histogram bins
+        """
+    
+        # Professional soft colors
+        class_colors = {
+            "chlorella": "#4C78A8",
+            "haematococcus": "#F58518",
+            "scenedesmus": "#54A24B",
+        }
+    
+        plt.figure(figsize=(8, 5))
+    
+        found_data = False
+    
+        for class_prefix in config.CLASS_PREFIXES:
+            class_idx = config.CLASS_PREFIXES[class_prefix]
+            class_name = config.CLASS_NAMES[class_prefix]
+    
+            # Get feature values only for the current class
+            values = [
+                fields[feature_name]
+                for _, fields in img_paths.items()
+                if fields.get("class") == class_idx and feature_name in fields
+            ]
+    
+            if len(values) == 0:
+                continue
+    
+            found_data = True
+    
+            plt.hist(
+                values,
+                bins=bins,
+                alpha=0.5,
+                label=class_name,
+                color=class_colors.get(class_prefix.lower(), None),
+                edgecolor="black",
+                linewidth=0.5
+            )
+    
+        if not found_data:
+            print(f"No data found for feature {feature_name}")
+            plt.close()
+            return
+    
+        plt.title(f"Distribution of {feature_name} by class")
+        plt.xlabel(feature_name)
+        plt.ylabel("Frequency")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+    
+        if save_path is not None:
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    
+        plt.show()
+        plt.close()
     
     '''
     @brief: Plot all channels of a microalga
@@ -994,6 +1100,61 @@ class DataAnalysis:
         
         self.global_channel_limits = global_limits
     
+    """
+    @brief: Shows histograms by class for calculated features that are not selected.
+    
+    @param img_paths: Dictionary with the microalgae data
+    @param save_dir: Directory where histograms will be saved.
+                     If None, histograms are only shown.
+    """
+    def show_unselected_features_histograms(self, img_paths, save_dir=None):
+    
+        # Unselected features = all calculated features - selected features
+        unselected_features = [
+            value
+            for key, value in vars(config.Channels).items()
+            if not key.startswith("__")
+            and isinstance(value, str)
+            and value not in config.SELECTED_FEATURES
+        ]
+    
+        if save_dir is not None:
+            os.makedirs(save_dir, exist_ok=True)
+    
+        # For each class
+        for class_prefix, class_id in config.CLASS_PREFIXES.items():
+    
+            class_name = config.CLASS_NAMES[class_prefix]
+    
+            # Get images from current class
+            class_data = {
+                img_name: fields
+                for img_name, fields in img_paths.items()
+                if fields.get("class") == class_id
+            }
+    
+            if len(class_data) == 0:
+                print(f"No data found for class {class_name}")
+                continue
+    
+            # For each unselected feature
+            for feature_name in unselected_features:
+    
+                feature_data = self.get_channel(class_data, feature_name)
+    
+                if feature_data is None or len(feature_data) == 0:
+                    print(f"No data found for {feature_name} in class {class_name}")
+                    continue
+    
+                title = f"Distribution of {feature_name} in class {class_name}"
+    
+                self.show_histogram(
+                    feature_data,
+                    title,
+                    feature_name,
+                    "Frequency",
+                    save_dir
+                )
     
     '''
     @brief: Cleans the data, clean outliers and artifacts that are not microalgae

@@ -49,8 +49,6 @@ def main():
 
     # --- Read data ---
     data_reader = DataReader("../images")
-    
-    # Read data
     img_paths = data_reader.read_data()
     
     # --- Analyze data ---
@@ -85,7 +83,17 @@ def main():
     data_analysis.plot_mofologic_correlation(train_data)
     data_analysis.plot_final_variables_correlation(train_data)
 
-    
+    # How non-selected features
+    data_analysis.show_unselected_features_histograms(
+        train_data,
+        save_dir="../data_info/plots/unselected_features"
+    )    
+
+    data_analysis.show_all_features_distributions_by_class(
+        train_data,
+        save_dir="../data_info/plots/features_by_class"
+    )
+
     # Filter out redundant features
     train_data = data_analysis.remove_unselected_features(train_data)
     val_data = data_analysis.remove_unselected_features(val_data)
