@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 
 """
 Class that handles the CNN model
@@ -63,13 +63,51 @@ class Model:
     @param val_images: Validation image paths dictionary
     @param test_images: Test image paths dictionary
     """
-    def read_data(self, train_images, val_images, test_images, batch_size=32, num_workers=2):
-
-        # Create dataloaders
-        self.train_loader = self._create_loader(train_images, shuffle=True, batch_size=batch_size, num_workers=num_workers)
-        self.val_loader = self._create_loader(val_images, shuffle=False, batch_size=batch_size, num_workers=num_workers)
-        self.test_loader = self._create_loader(test_images, shuffle=False, batch_size=batch_size, num_workers=num_workers)
-
+    def read_data(
+        self,
+        train_images,
+        val_images,
+        test_images,
+        batch_size=32,
+        num_workers=2,
+        balance_classes=True,
+        augment_train=True,
+        augment_minority_only=True
+    ):
+    
+        # Create training DataLoader
+        # Training can use class balancing and data augmentation
+        self.train_loader = self._create_loader(
+            data=train_images,
+            shuffle=True,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            balance_classes=balance_classes,
+            augment=augment_train,
+            augment_minority_only=augment_minority_only
+        )
+    
+        # Validation must not be balanced or augmented
+        self.val_loader = self._create_loader(
+            data=val_images,
+            shuffle=False,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            balance_classes=False,
+            augment=False,
+            augment_minority_only=False
+        )
+    
+        # Test must not be balanced or augmented
+        self.test_loader = self._create_loader(
+            data=test_images,
+            shuffle=False,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            balance_classes=False,
+            augment=False,
+            augment_minority_only=False
+        )
     """
     @brief: Trains the CNN model. If validation data is available, also loads the best model according to validation loss
             at the end of training
@@ -572,50 +610,127 @@ class Model:
 
     """
     @brief: Creates a PyTorch DataLoader from the given data
-
     @param data: Dictionary containing the samples to load
-    
     @param shuffle: Whether the samples should be shuffled
                     Usually True for training and False for validation/test
-               
     @param batch_size: Number of samples processed at the same time during training
-
     @param num_workers : Number of subprocesses used by the DataLoader to load data
-
     @return: PyTorch DataLoader
     """
-    def _create_loader(self, data, shuffle, batch_size, num_workers=2):
-
-        # Create a custom Dataset object
-        #
-        # The Dataset defines how each sample is accessed and loaded
-        # In this case, _MicroalgaeDataset receives:
-        #
-        # - data: dictionary with all sample information
-        # - selected_channels: channels that will be used as model input
-        # - load_fn: function used to load one sample from disk
+    def _create_loader(
+        self,
+        data,
+        shuffle,
+        batch_size,
+        num_workers=2,
+        balance_classes=False,
+        augment=False,
+        augment_minority_only=False
+    ):
+    
+        # ---------------------------------------------------------
+        # -- Decide which classes will receive data augmentation --
+        # ---------------------------------------------------------
+    
+        # By default, augment_classes is None.
+        #   - if augment=True and augment_minority_only=False:
+        #       augmentation will be applied to all classes
+        #   - if augment=False:
+        #       no augmentation will be applied
+        augment_classes = None
+    
+        # If augmentation should be applied only to the minority class/classes
+        # first count how many samples exist for each class
+        if augment and augment_minority_only:
+            class_counts = {}
+    
+            # Count samples per class in the provided dataset
+            for fields in data.values():
+                class_label = fields["class"]
+                class_counts[class_label] = class_counts.get(class_label, 0) + 1
+    
+            # Get the minimum number of samples among all classes
+            min_count = min(class_counts.values())
+    
+            # Select all classes whose number of samples equals the minimum count
+            augment_classes = {
+                class_label
+                for class_label, count in class_counts.items()
+                if count == min_count
+            }
+    
+            print(f"Augmentation will be applied to minority class/classes: {augment_classes}")
+    
+        # ----------------------
+        # --- Create Dataset ---
+        # ----------------------
+    
+        # The Dataset is responsible for:
+        #   - storing the sample names
+        #   - loading each sample using self._load_sample
+        #   - applying augmentation when enabled
         dataset = _MicroalgaeDataset(
             data=data,
             selected_channels=self.selected_channels,
-            load_fn=self._load_sample
+            load_fn=self._load_sample,
+            augment=augment,
+            augment_classes=augment_classes
         )
-
-        # Create and return a PyTorch DataLoader
-        #
-        # The DataLoader groups samples into batches and handles iteration
-        # during training, validation or testing
+    
+        # --------------------------------
+        # --- Optional class balancing ---
+        # --------------------------------
+        sampler = None
+    
+        if balance_classes:
+            
+            # Get the class label of each sample in the Dataset
+            labels = [
+                data[sample_name]["class"]
+                for sample_name in dataset.sample_names
+            ]
+    
+            # Count number of samples per class
+            class_counts = {}
+    
+            for label in labels:
+                class_counts[label] = class_counts.get(label, 0) + 1
+    
+            # Assign a weight to each sample
+            # Samples from minority classes receive higher weights.
+            #   weight = 1 / number_of_samples_in_that_class
+            sample_weights = [
+                1.0 / class_counts[label]
+                for label in labels
+            ]
+    
+            # WeightedRandomSampler samples training examples according to their weights.
+            # replacement=True allows minority class samples to be sampled more than once
+            # within an epoch, helping to balance the effective class distribution.
+            sampler = WeightedRandomSampler(
+                weights=sample_weights,
+                num_samples=len(sample_weights),
+                replacement=True
+            )
+    
+            # PyTorch DataLoader cannot use shuffle=True and sampler at the same time
+            # The sampler already controls the sampling order
+            shuffle = False
+    
+            print("Using WeightedRandomSampler for class balancing")
+            print("Training class distribution:", class_counts)
+    
+        # -------------------------
+        # --- Create DataLoader ---
+        # -------------------------
         return DataLoader(
             dataset,
             batch_size=batch_size,
             shuffle=shuffle,
+            sampler=sampler,
             num_workers=num_workers,
-            
-            # If CUDA is available, use pinned memory
-            #
-            # This can speed up the transfer of batches from CPU RAM to GPU memory
-            pin_memory=torch.cuda.is_available()
+            pin_memory=torch.cuda.is_available() # If CUDA is available, pinned memory can speed up CPU-to-GPU transfer
         )
-
 
 
     """
@@ -985,6 +1100,16 @@ class Model:
         else:
             accepted_accuracy = 0.0
     
+        original_class_metrics = self._compute_classification_metrics_from_results(
+            results,
+            accepted_only=False
+        )
+
+        accepted_class_metrics = self._compute_classification_metrics_from_results(
+            results,
+            accepted_only=True
+        )
+
         return {
             "total_samples": total_samples,
             "num_accepted": num_accepted,
@@ -992,6 +1117,17 @@ class Model:
             "coverage": coverage,
             "original_accuracy": original_accuracy,
             "accepted_accuracy": accepted_accuracy,
+
+            "original_macro_f1": original_class_metrics["macro_f1"],
+            "original_weighted_f1": original_class_metrics["weighted_f1"],
+            "original_confusion_matrix": original_class_metrics["confusion_matrix"],
+            "original_classification_report": original_class_metrics["classification_report"],
+
+            "accepted_macro_f1": accepted_class_metrics["macro_f1"],
+            "accepted_weighted_f1": accepted_class_metrics["weighted_f1"],
+            "accepted_confusion_matrix": accepted_class_metrics["confusion_matrix"],
+            "accepted_classification_report": accepted_class_metrics["classification_report"],
+
             "results": results
         }
 
@@ -1111,6 +1247,16 @@ class Model:
             for result in results
         )
     
+        original_class_metrics = self._compute_classification_metrics_from_results(
+            results,
+            accepted_only=False
+        )
+
+        accepted_class_metrics = self._compute_classification_metrics_from_results(
+            results,
+            accepted_only=True
+        )
+        
         return {
             "total_samples": total_samples,
             "num_accepted": num_accepted,
@@ -1121,6 +1267,17 @@ class Model:
             "rejected_by_class_filter": rejected_by_class_filter,
             "rejected_by_confidence": rejected_by_confidence,
             "rejected_by_both": rejected_by_both,
+            
+            "original_macro_f1": original_class_metrics["macro_f1"],
+            "original_weighted_f1": original_class_metrics["weighted_f1"],
+            "original_confusion_matrix": original_class_metrics["confusion_matrix"],
+            "original_classification_report": original_class_metrics["classification_report"],
+            
+            "accepted_macro_f1": accepted_class_metrics["macro_f1"],
+            "accepted_weighted_f1": accepted_class_metrics["weighted_f1"],
+            "accepted_confusion_matrix": accepted_class_metrics["confusion_matrix"],
+            "accepted_classification_report": accepted_class_metrics["classification_report"],
+            
             "results": results
         }
 
@@ -1168,6 +1325,102 @@ class Model:
     
         return predicted_class, confidence, accepted
 
+
+    def _compute_classification_metrics_from_results(self, results, accepted_only=False):
+        """
+        @brief: Computes classification metrics from prediction results.
+    
+        @param results: List of prediction result dictionaries
+        @param accepted_only: If True, metrics are computed only on accepted predictions
+    
+        @return: Dictionary with classification metrics
+        """
+    
+        from sklearn.metrics import classification_report, confusion_matrix, f1_score
+    
+        if accepted_only:
+            results_to_evaluate = [
+                result
+                for result in results
+                if result.get("accepted", False)
+            ]
+        else:
+            results_to_evaluate = results
+    
+        if len(results_to_evaluate) == 0:
+            return {
+                "confusion_matrix": None,
+                "classification_report": None,
+                "macro_f1": 0.0,
+                "weighted_f1": 0.0,
+            }
+    
+        y_true = [
+            result["true_class"]
+            for result in results_to_evaluate
+        ]
+    
+        y_pred = [
+            result["predicted_class"]
+            for result in results_to_evaluate
+        ]
+    
+        return {
+            "confusion_matrix": confusion_matrix(y_true, y_pred),
+            "classification_report": classification_report(
+                y_true,
+                y_pred,
+                digits=4,
+                zero_division=0
+            ),
+            "macro_f1": f1_score(
+                y_true,
+                y_pred,
+                average="macro",
+                zero_division=0
+            ),
+            "weighted_f1": f1_score(
+                y_true,
+                y_pred,
+                average="weighted",
+                zero_division=0
+            ),
+        }
+
+    def evaluate_classification_report(self, split="test"):
+        """
+        @brief: Prints confusion matrix and per-class classification metrics.
+    
+        @param split: Dataset split to evaluate. It can be "train", "val" or "test"
+        """
+    
+        from sklearn.metrics import confusion_matrix, classification_report, f1_score
+    
+        results = self.predict_loader(split=split)
+    
+        y_true = [result["true_class"] for result in results]
+        y_pred = [result["predicted_class"] for result in results]
+    
+        print(f"\n--------- CLASSIFICATION REPORT ({split}) ----------------")
+    
+        print("Confusion matrix:")
+        print(confusion_matrix(y_true, y_pred))
+    
+        print("\nClassification report:")
+        print(
+            classification_report(
+                y_true,
+                y_pred,
+                digits=4
+            )
+        )
+    
+        macro_f1 = f1_score(y_true, y_pred, average="macro")
+        weighted_f1 = f1_score(y_true, y_pred, average="weighted")
+    
+        print(f"Macro F1: {macro_f1:.4f}")
+        print(f"Weighted F1: {weighted_f1:.4f}")
+        print("----------------------------------------------------------\n")
 
     """
     Searches class-specific percentile ranges using validation data.
@@ -1339,17 +1592,24 @@ class _MicroalgaeDataset(Dataset):
                     into a tensor. In your case, this will usually be
                     self._load_sample from the Model class.
     """
-    def __init__(self, data, selected_channels, load_fn):
-        
+    def __init__(self, data, selected_channels, load_fn, augment=False, augment_classes=None):
+    
         # Store input data
         self.data = data
-        
+    
         # Store number of channels to be used by the model
         self.selected_channels = selected_channels
-        
-        # Store the function that lods aand preprocesses one sample
+    
+        # Store the function that loads and preprocesses one sample
         self.load_fn = load_fn
-        
+    
+        # Whether data augmentation is applied
+        self.augment = augment
+    
+        # Classes where augmentation is applied.
+        # If None, augmentation is applied to all classes.
+        self.augment_classes = augment_classes
+    
         # Store sample names in a list so PyTorch can access by index
         self.sample_names = list(data.keys())
 
@@ -1371,21 +1631,52 @@ class _MicroalgaeDataset(Dataset):
         y: class label as a tensor
     """
     def __getitem__(self, idx):
-        
+    
         # Get the sample name corresponding to this index
         sample_name = self.sample_names[idx]
-        
+    
         # Get all fields/channels of this microalga
         fields = self.data[sample_name]
     
         # Load selected microalga channels and convert them into a tensor
         x = self.load_fn(fields)
-        
-        # Get the class label and convert it to a PyTorch tensor
-        # dtype=torch.long is required by CrossEntropyLoss
-        y = torch.tensor(fields["class"], dtype=torch.long)
     
-        # Return also the sample name so predictions can be linked later
-        # with morphological/fluorescence features
+        # Get the class label
+        class_label = fields["class"]
+    
+        # Apply data augmentation only when enabled
+        if self.augment:
+    
+            # If augment_classes is None, augment all classes
+            # Otherwise, augment only the selected classes
+            if self.augment_classes is None or class_label in self.augment_classes:
+                x = self._augment_sample(x)
+    
+        # Convert class label to tensor
+        y = torch.tensor(class_label, dtype=torch.long)
+    
         return x, y, sample_name
+   
     
+    """
+    @brief: Applies simple spatial data augmentation
+    The same transformation is applied to all channels, preserving the alignment
+    between amplitude, phase, fluorescence and mask channels
+    @param x: Tensor with shape [C, H, W]
+    @return: Augmented tensor with shape [C, H, W]
+    """
+    def _augment_sample(self, x):
+
+        # Random horizontal flip
+        if torch.rand(1).item() < 0.5:
+            x = torch.flip(x, dims=[2])
+    
+        # Random vertical flip
+        if torch.rand(1).item() < 0.5:
+            x = torch.flip(x, dims=[1])
+    
+        # Random rotation by 0, 90, 180 or 270 degrees
+        k = torch.randint(0, 4, (1,)).item()
+        x = torch.rot90(x, k=k, dims=[1, 2])
+    
+        return x.contiguous()

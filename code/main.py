@@ -136,7 +136,14 @@ def main():
         val_images=val_images,
         test_images=test_images,
         batch_size=32,
-        num_workers=2
+        num_workers=2,
+        # balance_classes=True,
+        # augment_train=True,
+        # augment_minority_only=True
+        
+        balance_classes=False,
+        augment_train=True,
+        augment_minority_only=False
     )
     
     if TRAIN_MODEL:
@@ -164,6 +171,9 @@ def main():
 
     test_loss, test_acc = model.evaluate(split="test")
     print(f"Test loss: {test_loss:.4f} | Test acc: {test_acc:.4f}")
+    
+    model.evaluate_classification_report(split="val")
+    model.evaluate_classification_report(split="test")
     
     # =================== CLASS FILTER + CONFIDENCE THRESHOLD FILTERING ===================
     
@@ -228,8 +238,22 @@ def main():
     print(f"Accepted predictions: {filtered_metrics['num_accepted']}")
     print(f"Rejected predictions: {filtered_metrics['num_rejected']}")
     print(f"Coverage: {filtered_metrics['coverage']:.4f}")
-    print(f"Original accuracy: {filtered_metrics['original_accuracy']:.4f}")
-    print(f"Accuracy on accepted predictions: {filtered_metrics['accepted_accuracy']:.4f}")
+    
+    print("\nOriginal performance:")
+    print(f"Accuracy: {filtered_metrics['original_accuracy']:.4f}")
+    print(f"Macro F1: {filtered_metrics['original_macro_f1']:.4f}")
+    print(f"Weighted F1: {filtered_metrics['original_weighted_f1']:.4f}")
+    
+    print("\nPerformance on accepted predictions:")
+    print(f"Accepted accuracy: {filtered_metrics['accepted_accuracy']:.4f}")
+    print(f"Accepted macro F1: {filtered_metrics['accepted_macro_f1']:.4f}")
+    print(f"Accepted weighted F1: {filtered_metrics['accepted_weighted_f1']:.4f}")
+    
+    print("\nAccepted predictions classification report:")
+    print(filtered_metrics["accepted_classification_report"])
+    
+    print("Accepted predictions confusion matrix:")
+    print(filtered_metrics["accepted_confusion_matrix"])
     
     if class_percentiles is not None:
         print(f"Rejected by class filter: {filtered_metrics['rejected_by_class_filter']}")
