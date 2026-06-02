@@ -311,9 +311,15 @@ class DataAnalysis:
         for img_name, fields in img_paths.items():
             # Read mask channel
             mask = self.read_mask_img(fields["mask"])
-            fluor_1 = self.read_fluor_img(fields["flr_1"])
-            fluor_2 = self.read_fluor_img(fields["flr_2"])
-            fluor_3 = self.read_fluor_img(fields["flr_3"])
+            
+            # Read fluorescence signals from the FLU image
+            # OpenCV reads images in BGR order:
+            #   channel 2 = Red   -> FLR_1 signal
+            #   channel 1 = Green -> FLR_2 signal
+            #   channel 0 = Blue  -> FLR_3 signal
+            fluor_1 = self.read_fluor_img(fields["flu"], 2)
+            fluor_2 = self.read_fluor_img(fields["flu"], 1)
+            fluor_3 = self.read_fluor_img(fields["flu"], 0)
 
             # Calculate mask contours
             mask_contours = self.calculate_mask_contours(mask)
@@ -498,7 +504,7 @@ class DataAnalysis:
         plt.show()
     
             
-    def plot_fluorescence_correlation(self, img_paths):
+    def plot_fluorescence_correlation(self, img_paths, save_path=None):
         cols = [
             config.Channels.MEAN_FLUORESCENCE_FLU1,
             config.Channels.MEAN_FLUORESCENCE_FLU2,
@@ -507,10 +513,10 @@ class DataAnalysis:
             config.Channels.FLUORESCENT_AREA_RATIO_FLU2,
             config.Channels.FLUORESCENT_AREA_RATIO_FLU3,
         ]
-        self.plot_correlation(cols, img_paths, "Correlation matrix of fluorescence channels")
+        self.plot_correlation(cols, img_paths, "Correlation matrix of fluorescence channels", save_path)
     
     
-    def plot_mofologic_correlation(self, img_paths):
+    def plot_mofologic_correlation(self, img_paths, save_path=None):
         cols = [
             config.Channels.MASK_AREA,
             config.Channels.MASK_PERIMETER,
@@ -518,10 +524,10 @@ class DataAnalysis:
             config.Channels.MASK_SOLIDITY,
             config.Channels.MASK_ASPECTRATIO,
         ]
-        self.plot_correlation(cols, img_paths, "Correlation matrix of morphological features")
+        self.plot_correlation(cols, img_paths, "Correlation matrix of morphological features", save_path)
     
         
-    def plot_final_variables_correlation(self, img_paths):
+    def plot_final_variables_correlation(self, img_paths, save_path=None):
         cols = [
             config.Channels.MASK_AREA,
             config.Channels.MASK_SOLIDITY,
@@ -529,22 +535,30 @@ class DataAnalysis:
             config.Channels.MEAN_FLUORESCENCE_FLU2,
             config.Channels.FLUORESCENT_AREA_RATIO_FLU2
         ]
-        self.plot_correlation(cols, img_paths, "Correlation matrix of final variables")
+        self.plot_correlation(cols, img_paths, "Correlation matrix of final variables", save_path)
         
     
-    def plot_correlation(self, cols, img_paths, title):
+    def plot_correlation(self, cols, img_paths, title, save_path=None):
         data = []
+    
         for _, fields in img_paths.items():
             row = {}
+    
             for col in cols:
                 if col in fields:
                     row[col] = fields[col]
+    
             if len(row) == len(cols):
                 data.append(row)
-        
+    
         df = pd.DataFrame(data)
+    
+        if df.empty:
+            print(f"No data available for correlation: {title}")
+            return
+    
         corr = df.corr()
-        
+    
         plt.figure(figsize=(7, 6))
         plt.imshow(corr, interpolation="nearest")
         plt.colorbar()
@@ -552,8 +566,109 @@ class DataAnalysis:
         plt.yticks(range(len(cols)), cols)
         plt.title(title)
         plt.tight_layout()
+    
+        if save_path is not None:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    
         plt.show()
+        plt.close()
         
+        
+    """
+    @brief: Plots one correlation matrix per class.
+
+    @param cols: List of feature names to include in the correlation matrix
+    @param img_paths: Dictionary with microalgae data
+    @param title: General title for the correlation matrices
+    @param save_dir: Directory where the figures will be saved. If None, figures are only shown.
+    """
+    def plot_correlation_by_class(self, cols, img_paths, title, save_dir=None):
+        if save_dir is not None:
+            os.makedirs(save_dir, exist_ok=True)
+    
+        for class_prefix, class_id in config.CLASS_PREFIXES.items():
+    
+            class_name = config.CLASS_NAMES[class_prefix]
+    
+            class_data = {
+                img_name: fields
+                for img_name, fields in img_paths.items()
+                if fields.get("class") == class_id
+            }
+    
+            if len(class_data) == 0:
+                print(f"No data found for class {class_name}")
+                continue
+    
+            save_path = None
+    
+            if save_dir is not None:
+                safe_title = re.sub(r"[^a-zA-Z0-9_\-]+", "_", title).strip("_")
+                safe_class_name = re.sub(r"[^a-zA-Z0-9_\-]+", "_", class_name).strip("_")
+    
+                save_path = os.path.join(
+                    save_dir,
+                    f"{safe_title}_{safe_class_name}.png"
+                )
+    
+            self.plot_correlation(
+                cols,
+                class_data,
+                f"{title} - {class_name}",
+                save_path=save_path
+            )
+    
+    def plot_fluorescence_correlation_by_class(self, img_paths, save_dir=None):
+        cols = [
+            config.Channels.MEAN_FLUORESCENCE_FLU1,
+            config.Channels.MEAN_FLUORESCENCE_FLU2,
+            config.Channels.MEAN_FLUORESCENCE_FLU3,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU1,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU2,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU3,
+        ]
+    
+        self.plot_correlation_by_class(
+            cols,
+            img_paths,
+            "Correlation matrix of fluorescence channels",
+            save_dir
+        )
+    
+    
+    def plot_morphologic_correlation_by_class(self, img_paths, save_dir=None):
+        cols = [
+            config.Channels.MASK_AREA,
+            config.Channels.MASK_PERIMETER,
+            config.Channels.MASK_CIRCULARITY,
+            config.Channels.MASK_SOLIDITY,
+            config.Channels.MASK_ASPECTRATIO,
+        ]
+    
+        self.plot_correlation_by_class(
+            cols,
+            img_paths,
+            "Correlation matrix of morphological features",
+            save_dir
+        )
+    
+    
+    def plot_final_variables_correlation_by_class(self, img_paths, save_dir=None):
+        cols = [
+            config.Channels.MASK_AREA,
+            config.Channels.MASK_SOLIDITY,
+            config.Channels.MASK_ASPECTRATIO,
+            config.Channels.MEAN_FLUORESCENCE_FLU2,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU2,
+        ]
+    
+        self.plot_correlation_by_class(
+            cols,
+            img_paths,
+            "Correlation matrix of final variables",
+            save_dir
+        )
     
     def print_summary(self, cols, img_paths):
         data = []
@@ -668,7 +783,7 @@ class DataAnalysis:
     Fluorescence images may be stored as RGB/BGR visualizations, so reading in grayscale provides a
     single intensity image using all available channels
     """    
-    def read_fluor_img(self, img_path):
+    def read_fluor_img(self, img_path, channel):
 
         img = cv2.imread(str(img_path), cv2.IMREAD_COLOR)
     
@@ -676,7 +791,7 @@ class DataAnalysis:
             return None
     
         # Read red channel
-        return img[:,:,2]
+        return img[:,:, channel]
 
 
     
@@ -993,14 +1108,6 @@ class DataAnalysis:
                     "max": float(high)
                 }
                 
-                # Fluorescence variables are saturated at the upper bound.
-                # Therefore, they are only filtered by the lower percentile.
-                if channel == mean_key:
-                    limits[class_id][channel]["max"] = 255.0
-                
-                if channel == ratio_key:
-                    limits[class_id][channel]["max"] = 1.0
-        
         self.channel_limits = limits
         
     """
@@ -1054,15 +1161,41 @@ class DataAnalysis:
     
     '''
     @brief: Calculates global limits for each channel
-    @param data: Data to calculate limits from (should be training, not validation or test)
-    @param p_low: low percentile to be used
-    @param p_high: high percentile to be used
+    
+    Limits are computed only from the training set.
+    
+    Different variables may require different filtering rules:
+        - MASK_AREA: remove extremely small objects and high outliers
+        - MASK_ASPECTRATIO: remove only low outliers, because values close to 1 are normal
+        - MASK_SOLIDITY: remove only low outliers, because values close to 1 are normal
+        - Fluorescence variables: remove only low values, because high values may correspond to saturation
+        - Other variables: remove both low and high percentile outliers
+    
+    @param data: Data to calculate limits from. It should be training data only
+    @param p_low: Low percentile to be used
+    @param p_high: High percentile to be used
     '''
     def compute_global_limits(self, data, p_low=1, p_high=99):
     
         global_limits = {}
     
-        # For each channel
+        # Channels with special behavior
+        mask_area_key = config.Channels.MASK_AREA
+        aspectratio_key = config.Channels.MASK_ASPECTRATIO
+        solidity_key = config.Channels.MASK_SOLIDITY
+    
+        fluorescence_low_only_keys = {
+            config.Channels.MEAN_FLUORESCENCE_FLU2,
+            config.Channels.FLUORESCENT_AREA_RATIO_FLU2,
+        }
+    
+        low_only_keys = {
+            aspectratio_key,
+            solidity_key,
+            *fluorescence_low_only_keys,
+        }
+    
+        # For each calculated channel
         for channel in self.channel_names:
     
             # Get channel data from all training samples
@@ -1075,29 +1208,47 @@ class DataAnalysis:
             low = np.percentile(channel_data, p_low)
             high = np.percentile(channel_data, p_high)
     
-            # Store limits
+            # Default behavior: filter both low and high values
             global_limits[channel] = {
                 "min": float(low),
                 "max": float(high)
             }
     
-        
-        # Fluorescence variables are saturated at the upper bound
-        # Therefore, they are only filtered by the lower percentile
-        mean_key = config.Channels.MEAN_FLUORESCENCE_FLU2
-        ratio_key = config.Channels.FLUORESCENT_AREA_RATIO_FLU2
-        
-        if mean_key in global_limits:
-            global_limits[mean_key]["max"] = 255.0
+            # ------------------------------------------------------
+            # Special case 1: MASK_AREA
+            # ------------------------------------------------------
+            # For area, we want to remove very small objects but avoid
+            # rejecting too many valid small cells.
+            # Therefore, the lower limit is fixed manually and the upper
+            # limit is still given by the high percentile
+            if channel == mask_area_key:
+                global_limits[channel]["min"] = 0.005
+                global_limits[channel]["max"] = float(high)
     
-        if ratio_key in global_limits:
-            global_limits[ratio_key]["max"] = 1.0
-            
-        # MASK_AREA tends to saturate at its lower value, so its minimum limit is fixed to 0.0
-        mask_key = config.Channels.MASK_AREA
-        if mask_key in global_limits:
-            global_limits[mask_key]["min"] = 0.0
-        
+            # ------------------------------------------------------
+            # Special case 2: low-only variables
+            # ------------------------------------------------------
+            # For aspect ratio and solidity, high values close to 1 are
+            # normal and should not be rejected.
+            #
+            # For fluorescence variables, high values may correspond to
+            # saturation and are also preserved.
+            if channel in low_only_keys:
+                global_limits[channel]["min"] = float(low)
+    
+                if channel in fluorescence_low_only_keys:
+                    # Mean fluorescence is bounded by 255
+                    if channel == config.Channels.MEAN_FLUORESCENCE_FLU2:
+                        global_limits[channel]["max"] = 255.0
+    
+                    # Fluorescent area ratio is bounded by 1
+                    elif channel == config.Channels.FLUORESCENT_AREA_RATIO_FLU2:
+                        global_limits[channel]["max"] = 1.0
+    
+                else:
+                    # Aspect ratio and solidity are naturally bounded by 1
+                    global_limits[channel]["max"] = 1.0
+    
         self.global_channel_limits = global_limits
     
     """

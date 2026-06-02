@@ -11,8 +11,9 @@ CLASS_NAMES = {"CH" : "Chlorella",
                }
 
 # 7 Channels per microalga
-INITIAL_IMG_SUFFIXES = ["amp", "flr_1", "flr_2", "flr_3", "flu", "mask", "phase"] 
-SELECTED_IMG_SUFFIXES = ["amp", "flr_1", "flr_2", "flr_3", "mask", "phase"] 
+INITIAL_IMG_SUFFIXES = ["amp", "flr_1", "flr_2", "flr_3", "flu", "mask", "phase"]
+MINIMUM_REQUIRED_FIELDS = ["amp", "phase", "mask", "flu", "class"]
+SELECTED_IMG_SUFFIXES = ["amp", "flr_1", "flr_2", "flr_3", "mask", "phase"]
 
 PIXEL_SIZE = 0.57971  # um per pixel
 

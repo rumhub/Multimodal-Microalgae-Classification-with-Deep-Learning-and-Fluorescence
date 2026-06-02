@@ -48,14 +48,14 @@ def main():
     # =================== IMAGE READING AND PREPROCESSING ===================
 
     # --- Read data ---
-    data_reader = DataReader("../images")
+    data_reader = DataReader(path="../images", generated_dir="../images/generated")
     img_paths = data_reader.read_data()
     
     # --- Analyze data ---
     data_analysis = DataAnalysis()
     
     # Rebalance classes
-    # img_paths = data_analysis.balance_classes_to_min_count(img_paths)
+    img_paths = data_analysis.balance_classes_to_min_count(img_paths)
 
     # Split global data into training, validation, and test
     train_data, val_data, test_data = data_analysis.split_train_val_test(img_paths)
@@ -78,12 +78,17 @@ def main():
     test_data = data_analysis.remove_unselected_image_channels(test_data)
     
     # Analize correlation (only train)
-    data_analysis.plot_fluorescence_correlation(train_data)
+    data_analysis.plot_fluorescence_correlation(train_data, save_path="../data_info/plots/correlation/fluorescence_correlation.png")
     fluorescence_summary = data_analysis.print_fluorescence_summary(train_data)
-    data_analysis.plot_mofologic_correlation(train_data)
-    data_analysis.plot_final_variables_correlation(train_data)
+    data_analysis.plot_mofologic_correlation(train_data, save_path="../data_info/plots/correlation/morphological_correlation.png")
+    data_analysis.plot_final_variables_correlation(train_data, save_path="../data_info/plots/correlation/final_variables_correlation.png")
+    
+    # Analyze correlation by class (only train)
+    data_analysis.plot_fluorescence_correlation_by_class(train_data, save_dir="../data_info/plots/correlation/by_class/fluorescence")
+    data_analysis.plot_morphologic_correlation_by_class(train_data, save_dir="../data_info/plots/correlation/by_class/morphological")
+    data_analysis.plot_final_variables_correlation_by_class(train_data, save_dir="../data_info/plots/correlation/by_class/final_variables")
 
-    # How non-selected features
+    # Show non-selected features
     data_analysis.show_unselected_features_histograms(
         train_data,
         save_dir="../data_info/plots/unselected_features"
@@ -124,10 +129,7 @@ def main():
     # =================== MODEL ===================
     # --- Model ---
     model = Model(
-        # selected_channels= config.IMG_SUFFIXES,
-        # selected_channels=["amp", "phase", "flr_2"],
         selected_channels=config.SELECTED_IMG_SUFFIXES,
-        # selected_channels=["amp", "flr_1", "flr_2", "mask", "phase"],
         num_classes= len(config.CLASS_PREFIXES),
     )
     
