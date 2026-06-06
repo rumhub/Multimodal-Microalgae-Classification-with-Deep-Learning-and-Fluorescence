@@ -565,7 +565,7 @@ class DataAnalysis:
         plt.xticks(range(len(cols)), cols, rotation=45, ha="right")
         plt.yticks(range(len(cols)), cols)
         plt.title(title)
-        plt.tight_layout()
+        plt.tight_layout(rect=[0, 0, 1, 0.93])
     
         if save_path is not None:
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
@@ -1319,42 +1319,13 @@ class DataAnalysis:
             data_copy = copy.deepcopy(data)
         
         # ---------------------------------------
-        # ---------- Special filtering ----------
-        # ---------------------------------------
-
-        # ----- Remove data with mask area of 0  -----
-        # Create a copy of the original data (list of img paths)
-        img_names = list(data.keys())
-        
-        fluorescence_channels = [
-            config.Channels.MEAN_FLUORESCENCE_FLU2,
-            config.Channels.FLUORESCENT_AREA_RATIO_FLU2,
-        ]
-        
-        for img_name in img_names:
-            # Avoid KeyError if img doesn't have channel channel_name
-            value = data[img_name].get(config.Channels.MASK_AREA)
-
-            # Remove negative and 0 values
-            if value is None or value <= 0.001:
-                del data[img_name]
-                continue    # Make sure we only delete the img 1 time
-                
-            # ----- Remove data with low fluorescence -----
-            for channel_name in fluorescence_channels:
-                value = data[img_name].get(channel_name)
-            
-                if value is None or value < 0.05:
-                    del data[img_name]
-                    break   # Make sure we only delete the img 1 time
-                    
-        # ---------------------------------------
         # ---------- Common filtering ----------
         # ---------------------------------------
         
         # ---------- Remove data outside percentiles ----------
         imgs_to_remove = set()
-    
+        n_removed = 0
+
         # For each calculated channel (mask_area, mask_perimeter, etc)
         for channel_name in self.channel_names:
 
@@ -1371,17 +1342,13 @@ class DataAnalysis:
                 # Avoid KeyError if img doesn't have channel channel_name
                 value = fields.get(channel_name)
                 
-                # For fluorescence channels, only remove low values
-                # High values are preserved because fluorescence may saturate
-                if channel_name in fluorescence_channels:
-                    if value < p_low:
-                        imgs_to_remove.add(img_name)
-                
-                # For the rest of the channels, remove both low and high outliers
-                else:
-                    if value < p_low or value > p_high:
-                        imgs_to_remove.add(img_name)
+                # Remove both low and high outliers
+                if value < p_low or value > p_high:
+                    imgs_to_remove.add(img_name)
+                    n_removed += 1
        
+        print(f"Filtered elements: {n_removed} ({n_removed / len(data) * 100:.2f}%)")
+
         # Remove images
         for img in imgs_to_remove:
             if img in data:
@@ -1391,8 +1358,6 @@ class DataAnalysis:
         # -------- Show information after filtering ------------
         # ------------------------------------------------------
         if debug == 1:
-            print("Filtered elements: ", len(data_copy) - len(data))
-
             for class_prefix in config.CLASS_PREFIXES: # For each class or microalga type
                 class_data = {}
                 class_data_filtered = {}

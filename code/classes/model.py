@@ -132,7 +132,7 @@ class Model:
         epochs_without_improvement = 0
     
         # Optimizer used to update the CNN weights during training
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate, weight_decay=5e-4)
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=learning_rate, weight_decay=1e-4)
 
     
         # Main training loop. Each iteration corresponds to one full pass
@@ -850,18 +850,11 @@ class Model:
             nn.BatchNorm2d(256),
             nn.ReLU(),
     
-            nn.MaxPool2d(2),
-    
-            # -------- Block 5 --------
-            nn.Conv2d(256, 512, kernel_size=3, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(),
-    
             nn.AdaptiveAvgPool2d((1, 1)),
     
             nn.Flatten(),
-            nn.Dropout(0.5),
-            nn.Linear(512, self.num_classes)
+            nn.Dropout(0.6),
+            nn.Linear(256, self.num_classes)
         )
 
 
@@ -1023,7 +1016,7 @@ class Model:
                 # Forward pass
                 logits = self.model(x)
     
-                # Convert logits to probabilities
+                # Convert to probabilities
                 probs = torch.softmax(logits, dim=1)
     
                 # Get confidence and predicted class for each sample

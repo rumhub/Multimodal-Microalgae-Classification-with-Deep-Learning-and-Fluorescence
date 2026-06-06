@@ -144,6 +144,25 @@ class DataReader:
     
         print("----")
     
+    
+        # Print number of microalgae per class
+        final_class_counts = {}
+        
+        for class_prefix in config.CLASS_PREFIXES:
+            final_class_counts[class_prefix] = 0
+    
+        for fields in img_paths.values():
+            class_label = fields.get("class")
+    
+            for class_prefix, label in config.CLASS_PREFIXES.items():
+                if class_label == label:
+                    final_class_counts[class_prefix] += 1
+    
+        for class_prefix, count in final_class_counts.items():
+            print(f"{config.CLASS_NAMES[class_prefix]}: {count}")
+            
+        print("----")
+    
         return img_paths
 
     def clean_incomplete_data(self, data):

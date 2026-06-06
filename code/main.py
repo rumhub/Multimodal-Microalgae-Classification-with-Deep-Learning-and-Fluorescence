@@ -31,7 +31,7 @@ def main():
 
     # If True, the CNN is trained from scratch and saved
     # If False, a previously saved model is loaded
-    TRAIN_MODEL = True
+    TRAIN_MODEL = False
     
     # Convert model path to a Path object
     model_path = Path(config.MODEL_PATH)
@@ -139,10 +139,6 @@ def main():
         test_images=test_images,
         batch_size=32,
         num_workers=2,
-        # balance_classes=True,
-        # augment_train=True,
-        # augment_minority_only=True
-        
         balance_classes=False,
         augment_train=True,
         augment_minority_only=False
@@ -181,7 +177,7 @@ def main():
     
     # Compute one confidence threshold for each predicted class using validation data
     class_thresholds = model.compute_class_confidence_thresholds(
-        split="val", min_accepted_ratio=0.8, debug=True
+        split="val", min_accepted_ratio=0.90, debug=True
     )
     print("Class confidence thresholds:")
     for class_idx, threshold in class_thresholds.items():
@@ -200,7 +196,7 @@ def main():
             (10, 90),
             (15, 85),
         ],
-        min_coverage=0.80
+        min_coverage=0.90
     )
     
     if class_percentiles is None:
