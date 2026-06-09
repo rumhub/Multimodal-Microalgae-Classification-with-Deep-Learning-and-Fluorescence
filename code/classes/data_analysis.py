@@ -767,7 +767,127 @@ class DataAnalysis:
     
         return train_data, val_data, test_data
         
-            
+    
+    """
+    @brief: Generates a flowchart showing the final test evaluation pipeline.
+    
+    @param save_path: Path where the figure will be saved
+    @param initial_rejected_percent: Percentage rejected by global filtering
+    @param remaining_samples: Number of samples after global filtering
+    @param coverage: Coverage after confidence-based rejection
+    @param accepted_accuracy: Accuracy on accepted predictions
+    """
+    def plot_test_pipeline_flowchart(
+        self,
+        save_path="../data_info/plots/results/test_pipeline_flowchart.png",
+        initial_rejected_percent=7.51,
+        remaining_samples=1176,
+        coverage=98.41,
+        accepted_accuracy=99.83
+    ):
+
+    
+        import os
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import FancyBboxPatch
+    
+        output_dir = os.path.dirname(save_path)
+    
+        if output_dir != "":
+            os.makedirs(output_dir, exist_ok=True)
+    
+        blocks = [
+            {
+                "title": "Conjunto de test",
+                "text": "Muestras no utilizadas\nni en entrenamiento\nni en validación"
+            },
+            {
+                "title": "Filtrado global",
+                "text": (
+                    "Eliminar muestras no\n representativas\n"
+                    f"Rechazadas: {initial_rejected_percent:.2f}\\%"
+                )
+            },
+            {
+                "title": "Muestras restantes",
+                "text": (
+                    f"{remaining_samples} muestras\n"
+                    "después del filtrado inicial"
+                )
+            },
+            {
+                "title": "Modelo CNN",
+                "text": (
+                    "Clasificación automática\n"
+                    "de las muestras restantes"
+                )
+            },
+            {
+                "title": "Sistema de rechazo",
+                "text": (
+                    "Umbrales de confianza\n"
+                    "específicos por clase"
+                )
+            },
+            {
+                "title": "Predicciones aceptadas",
+                "text": (
+                    f"Cobertura: {coverage:.2f}\\%\n"
+                    f"Accuracy: {accepted_accuracy:.2f}\\%"
+                )
+            },
+        ]
+    
+        fig, ax = plt.subplots(figsize=(16, 3.8))
+        ax.axis("off")
+    
+        box_width = 2.05
+        box_height = 1.35
+        gap = 0.45
+        y = 0.8
+    
+        for i, block in enumerate(blocks):
+            x = i * (box_width + gap)
+    
+            box = FancyBboxPatch(
+                (x, y),
+                box_width,
+                box_height,
+                boxstyle="round,pad=0.05",
+                linewidth=1.3,
+                facecolor="white",
+                edgecolor="black"
+            )
+    
+            ax.add_patch(box)
+    
+            ax.text(
+                x + box_width / 2,
+                y + box_height / 2,
+                f"{block['title']}\n\n{block['text']}",
+                ha="center",
+                va="center",
+                fontsize=9.5
+            )
+    
+            if i < len(blocks) - 1:
+                ax.annotate(
+                    "",
+                    xy=(x + box_width + gap * 0.8, y + box_height / 2),
+                    xytext=(x + box_width, y + box_height / 2),
+                    arrowprops=dict(arrowstyle="->", linewidth=1.4)
+                )
+    
+        ax.set_xlim(-0.2, len(blocks) * (box_width + gap) - gap + 0.2)
+        ax.set_ylim(0.45, 2.45)
+    
+        plt.tight_layout(pad=0.3)
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        plt.show()
+        plt.close()
+    
+        print(f"Test pipeline flowchart saved in: {save_path}")
+        
     def read_mask_img(self, mask_path):
         # Read img as grayscale
         mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)

@@ -31,7 +31,7 @@ def main():
 
     # If True, the CNN is trained from scratch and saved
     # If False, a previously saved model is loaded
-    TRAIN_MODEL = True
+    TRAIN_MODEL = False
     
     # Convert model path to a Path object
     model_path = Path(config.MODEL_PATH)
@@ -170,15 +170,18 @@ def main():
     test_loss, test_acc = model.evaluate(split="test")
     print(f"Test loss: {test_loss:.4f} | Test acc: {test_acc:.4f}")
     
-    model.evaluate_classification_report(split="val")
-    model.evaluate_classification_report(split="test")
+    model.evaluate_classification_report(split="val", plot_confusion=True,
+        save_path="../data_info/plots/results/Confusion_matrix_val.png")
+    
+    model.evaluate_classification_report(split="test", plot_confusion=True,
+        save_path="../data_info/plots/results/Confusion_matrix_test.png")
     
     # =================== CLASS FILTER + CONFIDENCE THRESHOLD FILTERING ===================
     
     # Compute one confidence threshold for each predicted class using validation data
-    class_thresholds = model.compute_class_confidence_thresholds(
-        split="val", min_accepted_ratio=0.90, debug=True
-    )
+    class_thresholds = model.compute_class_confidence_thresholds(split="val", 
+        min_accepted_ratio=0.97, debug=True, save_dir="../data_info/plots/results/Threshold_search")
+    
     print("Class confidence thresholds:")
     for class_idx, threshold in class_thresholds.items():
         print(f"Class {class_idx}: {threshold:.2f}")
@@ -209,16 +212,15 @@ def main():
     
     print(f"Validation coverage: {val_filter_metrics['coverage']:.4f}")
     print(f"Validation accepted accuracy: {val_filter_metrics['accepted_accuracy']:.4f}")
-    
 
     # =================== FINAL MODEL PERFORMANCE ===================
     print("------------------ FINAL RESULTS ------------------")
     
     if class_percentiles is None:
         filtered_metrics = model.evaluate_with_confidence_filter(
-            split="test",
-            class_thresholds=class_thresholds
-        )
+            split="test", class_thresholds=class_thresholds,
+            plot_confusion=True,
+            save_path="../data_info/plots/results/Confusion_matrix_test_accepted.png")
     
         print("\nTest results with confidence filter only:")
     
@@ -258,7 +260,13 @@ def main():
         print(f"Rejected by confidence: {filtered_metrics['rejected_by_confidence']}")
         print(f"Rejected by both: {filtered_metrics['rejected_by_both']}")
     
-    
+    data_analysis.plot_test_pipeline_flowchart(
+        save_path="../data_info/plots/results/Test_pipeline.png",
+        initial_rejected_percent=7.51,
+        remaining_samples=1176,
+        coverage=98.41,
+        accepted_accuracy=99.83
+    )
     
     # =================== PREDICT EXTERNAL FOLDER ===================
 
@@ -272,7 +280,7 @@ def main():
         # Read images using the same structure as before
         prediction_reader = DataReader(
             path=PREDICT_FOLDER_PATH,
-            generated_dir="../Scenedesmus/"
+            generated_dir="../generated/"
         )
     
         prediction_data = prediction_reader.read_data()

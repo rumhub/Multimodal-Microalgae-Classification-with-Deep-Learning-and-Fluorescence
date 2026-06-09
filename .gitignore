@@ -9,6 +9,7 @@ __pycache__/
 # Data
 images/
 data_info/
+*.png
 
 # Heavy files
 *.pdf
