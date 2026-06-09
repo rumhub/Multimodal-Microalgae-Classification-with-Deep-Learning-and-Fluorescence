@@ -31,7 +31,7 @@ def main():
 
     # If True, the CNN is trained from scratch and saved
     # If False, a previously saved model is loaded
-    TRAIN_MODEL = False
+    TRAIN_MODEL = True
     
     # Convert model path to a Path object
     model_path = Path(config.MODEL_PATH)
@@ -258,6 +258,53 @@ def main():
         print(f"Rejected by confidence: {filtered_metrics['rejected_by_confidence']}")
         print(f"Rejected by both: {filtered_metrics['rejected_by_both']}")
     
+    
+    
+    # =================== PREDICT EXTERNAL FOLDER ===================
+
+    PREDICT_FOLDER = True
+    PREDICT_FOLDER_PATH = "../../otros_datos/Scenedesmus"
+    
+    if PREDICT_FOLDER:
+    
+        print("\n================== PREDICT EXTERNAL FOLDER ==================")
+    
+        # Read images using the same structure as before
+        prediction_reader = DataReader(
+            path=PREDICT_FOLDER_PATH,
+            generated_dir="../Scenedesmus/"
+        )
+    
+        prediction_data = prediction_reader.read_data()
+    
+        # Calculate metrics
+        prediction_data = data_analysis.get_img_metrics(prediction_data)
+    
+        # Remove image channels not used by the model
+        prediction_data = data_analysis.remove_unselected_image_channels(prediction_data)
+    
+        # Remove non-selected calculated features
+        prediction_data = data_analysis.remove_unselected_features(prediction_data)
+    
+        # Apply the same global filtering computed from train
+        num_before = len(prediction_data)
+        prediction_data = data_analysis.global_filtering(prediction_data, debug=0)
+        num_after = len(prediction_data)
+    
+        print(f"Samples before global filtering: {num_before}")
+        print(f"Samples after global filtering: {num_after}")
+        print(f"Rejected by global filtering: {num_before - num_after}")
+    
+        # Keep only image channels for the model
+        prediction_images, _ = data_analysis.split_data_from_features(prediction_data)
+    
+        # Predict and count classes
+        prediction_counts, accepted_counts, rejected_count, prediction_results = (
+            model.predict_and_count_classes(
+                data=prediction_images,
+                class_thresholds=class_thresholds
+            )
+        )
     
     
 if __name__ == "__main__":

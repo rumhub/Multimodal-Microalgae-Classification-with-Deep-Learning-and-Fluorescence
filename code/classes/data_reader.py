@@ -124,7 +124,8 @@ class DataReader:
     
                         if name.endswith(suffix):
                             
-                            base_name = name[:-len(suffix)]
+                            # base_name = name[:-len(suffix)]
+                            base_name = f"{base_class_dir.name}_{class_dir.name}_{name[:-len(suffix)]}"
         
                             # Create new sample entry if needed
                             if base_name not in img_paths:

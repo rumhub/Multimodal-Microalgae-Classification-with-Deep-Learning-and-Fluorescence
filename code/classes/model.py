@@ -1153,6 +1153,73 @@ class Model:
 
             "results": results
         }
+    
+    """
+    @brief: Predicts all samples and counts how many are assigned to each class
+           Real labels are ignored
+    
+    @param data: Dictionary with image paths for each sample
+    @param class_thresholds: Optional confidence thresholds per predicted class
+    
+    @return: prediction_counts, results
+    """
+    def predict_and_count_classes(self, data, class_thresholds=None):
+
+        prediction_counts = {
+            class_idx: 0
+            for class_idx in range(self.num_classes)
+        }
+    
+        accepted_counts = {
+            class_idx: 0
+            for class_idx in range(self.num_classes)
+        }
+    
+        rejected_count = 0
+        results = []
+    
+        for sample_name, fields in data.items():
+    
+            predicted_class, confidence = self.predict(fields)
+    
+            prediction_counts[predicted_class] += 1
+    
+            accepted = True
+            threshold = None
+    
+            if class_thresholds is not None:
+                threshold = class_thresholds[predicted_class]
+                accepted = confidence >= threshold
+    
+            if accepted:
+                accepted_counts[predicted_class] += 1
+            else:
+                rejected_count += 1
+    
+            results.append({
+                "sample_name": sample_name,
+                "predicted_class": predicted_class,
+                "confidence": confidence,
+                "threshold": threshold,
+                "accepted": accepted,
+            })
+    
+        print("\n--------- PREDICTION SUMMARY ----------------")
+    
+        print("Predicted classes:")
+        for class_idx, count in prediction_counts.items():
+            print(f"Class {class_idx}: {count}")
+    
+        if class_thresholds is not None:
+            print("\nAccepted predictions:")
+            for class_idx, count in accepted_counts.items():
+                print(f"Class {class_idx}: {count}")
+    
+            print(f"\nRejected predictions: {rejected_count}")
+    
+        print("---------------------------------------------\n")
+    
+        return prediction_counts, accepted_counts, rejected_count, results
 
 
     """
