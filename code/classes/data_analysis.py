@@ -32,9 +32,9 @@ class DataAnalysis:
         rgb_channels = ["Blue", "Green", "Red"]
     
         channel_colors = {
-        "Blue": "#4C78A8",   # muted blue
-        "Green": "#59A14F",  # muted green
-        "Red": "#C44E52",    # muted red
+        "Blue": "#4C78A8",   # blue
+        "Green": "#59A14F",  # green
+        "Red": "#C44E52",    # red
         }
         
         x = np.arange(len(fluorescence_channels))
@@ -805,7 +805,7 @@ class DataAnalysis:
                 "title": "Filtrado global",
                 "text": (
                     "Eliminar muestras no\n representativas\n"
-                    f"Rechazadas: {initial_rejected_percent:.2f}\\%"
+                    f"Rechazadas: {initial_rejected_percent:.2f}%"
                 )
             },
             {
@@ -832,8 +832,8 @@ class DataAnalysis:
             {
                 "title": "Predicciones aceptadas",
                 "text": (
-                    f"Cobertura: {coverage:.2f}\\%\n"
-                    f"Accuracy: {accepted_accuracy:.2f}\\%"
+                    f"Cobertura: {coverage:.2f}%\n"
+                    f"Accuracy: {accepted_accuracy:.2f}%"
                 )
             },
         ]
@@ -1428,88 +1428,234 @@ class DataAnalysis:
                 )
     
     '''
-    @brief: Cleans the data, clean outliers and artifacts that are not microalgae
-    @param data: Data to be cleaned
+    @brief: Cleans the data, removing outliers and artifacts that are not microalgae
     
+    @param data: Data to be cleaned
+    @param debug: If 1, shows histograms before/after filtering
+    @param save_dir: Directory to save histograms
+    @param return_removed: If True, also returns the removed samples
+    
+    @return:
+        - if return_removed == False:
+            filtered_data
+        - if return_removed == True:
+            filtered_data, removed_samples
     '''
-    def global_filtering(self, data, debug = 0, save_dir = None):
-        
+    def global_filtering(self, data, debug=0, save_dir=None, return_removed=False):
+    
         # Create a copy of the data before filtering
         if debug == 1:
             data_copy = copy.deepcopy(data)
-        
+    
         # ---------------------------------------
         # ---------- Common filtering ----------
         # ---------------------------------------
-        
-        # ---------- Remove data outside percentiles ----------
+    
         imgs_to_remove = set()
-        n_removed = 0
-
+        removed_reasons = {}
+    
         # For each calculated channel (mask_area, mask_perimeter, etc)
         for channel_name in self.channel_names:
-
+    
             # Ensure channel exists
             if channel_name not in self.global_channel_limits:
                 continue
-
-            # Get percentiles per channel
+    
+            # Get allowed range for current channel
             p_low = self.global_channel_limits[channel_name]["min"]
             p_high = self.global_channel_limits[channel_name]["max"]
-
-            # Filter data outside percentiles
+    
+            # Filter data outside limits
             for img_name, fields in data.items():
-                # Avoid KeyError if img doesn't have channel channel_name
+    
                 value = fields.get(channel_name)
-                
-                # Remove both low and high outliers
+    
+                # Skip if value does not exist
+                if value is None:
+                    continue
+    
                 if value < p_low or value > p_high:
+    
                     imgs_to_remove.add(img_name)
-                    n_removed += 1
-       
-        print(f"Filtered elements: {n_removed} ({n_removed / len(data) * 100:.2f}%)")
-
+    
+                    if img_name not in removed_reasons:
+                        removed_reasons[img_name] = []
+    
+                    removed_reasons[img_name].append({
+                        "feature": channel_name,
+                        "value": float(value),
+                        "min": float(p_low),
+                        "max": float(p_high)
+                    })
+    
+        n_removed = len(imgs_to_remove)
+    
+        if len(data) > 0:
+            print(f"Filtered elements: {n_removed} ({n_removed / len(data) * 100:.2f}%)")
+        else:
+            print("Filtered elements: 0 (0.00%)")
+    
+        # Store removed samples before deleting them
+        removed_samples = {}
+    
+        if return_removed:
+            for img_name in imgs_to_remove:
+                if img_name in data:
+                    removed_samples[img_name] = copy.deepcopy(data[img_name])
+    
         # Remove images
-        for img in imgs_to_remove:
-            if img in data:
-                del data[img]
-                
+        for img_name in imgs_to_remove:
+            if img_name in data:
+                del data[img_name]
+    
         # ------------------------------------------------------
         # -------- Show information after filtering ------------
         # ------------------------------------------------------
         if debug == 1:
-            for class_prefix in config.CLASS_PREFIXES: # For each class or microalga type
+            for class_prefix in config.CLASS_PREFIXES:  # For each class
                 class_data = {}
                 class_data_filtered = {}
-
-                # Get images per class
+    
+                # Get filtered images per class
                 for img_name, fields in data.items():
                     if fields.get("class") == config.CLASS_PREFIXES[class_prefix]:
                         class_data_filtered[img_name] = fields
-               
-                # Get images per class
+    
+                # Get original images per class
                 for img_name, fields in data_copy.items():
                     if fields.get("class") == config.CLASS_PREFIXES[class_prefix]:
-                        class_data[img_name] = fields 
-               
-                # For each calculated channel (mask_area, mask_perimeter, etc)
+                        class_data[img_name] = fields
+    
+                # For each calculated channel
                 for channel_name in self.channel_names:
     
-                    # Get all the data for a determined channel
                     channel_data = self.get_channel(class_data, channel_name)
                     channel_data_filtered = self.get_channel(class_data_filtered, channel_name)
-                    
+    
                     if channel_data is not None and len(channel_data) > 0:
-                        # Show general information about current channel
-                        self.show_histogram(channel_data, f"Distribution of {channel_name} in class {config.CLASS_NAMES[class_prefix]} before filtering", channel_name, "Frecuency", save_dir)
-                        self.describe_channel(channel_data, f"------------ {channel_name} DESCRIPTION BEFORE FILTERING ------------")
-                        
-                        # Show general information about current channel
-                        self.show_histogram(channel_data_filtered, f"Distribution of {channel_name} in class {config.CLASS_NAMES[class_prefix]} after filtering", channel_name, "Frecuency", save_dir)
-                        self.describe_channel(channel_data_filtered, f"------------ {channel_name} DESCRIPTION AFTER FILTERING ------------")
-            
+                        self.show_histogram(
+                            channel_data,
+                            f"Distribution of {channel_name} in class {config.CLASS_NAMES[class_prefix]} before filtering",
+                            channel_name,
+                            "Frequency",
+                            save_dir
+                        )
+                        self.describe_channel(
+                            channel_data,
+                            f"------------ {channel_name} DESCRIPTION BEFORE FILTERING ------------"
+                        )
+    
+                        self.show_histogram(
+                            channel_data_filtered,
+                            f"Distribution of {channel_name} in class {config.CLASS_NAMES[class_prefix]} after filtering",
+                            channel_name,
+                            "Frequency",
+                            save_dir
+                        )
+                        self.describe_channel(
+                            channel_data_filtered,
+                            f"------------ {channel_name} DESCRIPTION AFTER FILTERING ------------"
+                        )
+    
+        if return_removed:
+            return data, removed_samples
+    
         return data
     
+    
+    """
+    @brief: Plots some samples removed by the global filtering step
+    
+    @param removed_samples: Dictionary returned by global_filtering(..., return_removed=True)
+    @param channels: List of image channels to display, e.g. ["phase", "mask", "flu"]
+    @param max_samples: Maximum number of removed samples to plot
+    @param save_path: If provided, saves the figure
+    """
+    def plot_removed_samples(self, removed_samples, channels=None, max_samples=8, save_path=None):
+    
+        if len(removed_samples) == 0:
+            print("No removed samples to plot.")
+            return
+    
+        if channels is None:
+            channels = ["phase", "mask", "flu"]
+    
+        sample_items = list(removed_samples.items())[:max_samples]
+    
+        n_rows = len(sample_items)
+        n_cols = len(channels)
+    
+        fig, axes = plt.subplots(
+            n_rows,
+            n_cols,
+            figsize=(3.2 * n_cols, 2.8 * n_rows)
+        )
+    
+        # Normalize axes shape
+        if n_rows == 1 and n_cols == 1:
+            axes = np.array([[axes]])
+        elif n_rows == 1:
+            axes = np.array([axes])
+        elif n_cols == 1:
+            axes = np.array([[ax] for ax in axes])
+    
+        for row_idx, (sample_name, fields) in enumerate(sample_items):
+    
+            # Build a short description of the first filtering reason
+            short_name = sample_name
+            if len(short_name) > 35:
+                short_name = short_name[:35] + "..."
+    
+            for col_idx, channel_name in enumerate(channels):
+    
+                ax = axes[row_idx, col_idx]
+    
+                img_path = fields.get(channel_name)
+    
+                if img_path is None:
+                    ax.text(0.5, 0.5, "Not available", ha="center", va="center", fontsize=9)
+                    ax.axis("off")
+                    continue
+    
+                img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
+
+                if img is not None:
+                    ax.imshow(img, cmap="gray")
+                else:
+                    ax.text(0.5, 0.5, "Could not read", ha="center", va="center", fontsize=9)
+    
+                ax.axis("off")
+    
+                if row_idx == 0:
+                    ax.set_title(channel_name.upper(), fontsize=10)
+    
+            # Put sample info at the left of the row
+            axes[row_idx, 0].set_ylabel(
+                f"{short_name}",
+                rotation=0,
+                fontsize=8,
+                labelpad=55,
+                va="center"
+            )
+    
+        fig.suptitle(
+            "Examples of samples removed by global filtering",
+            fontsize=14,
+            y=0.995
+        )
+        
+        plt.tight_layout(rect=[0, 0, 1, 0.97])
+    
+        if save_path is not None:
+            save_dir = os.path.dirname(save_path)
+            if save_dir != "":
+                os.makedirs(save_dir, exist_ok=True)
+    
+            plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    
+        plt.show()
+        plt.close()
+        
     
     """
     @brief: Splits each sample into image-channel data and selected feature data.

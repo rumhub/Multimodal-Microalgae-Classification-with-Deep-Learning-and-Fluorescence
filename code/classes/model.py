@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 import torch
 import torch.nn as nn
-from pathlib import Path
 from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
 from sklearn.metrics import confusion_matrix, classification_report, f1_score, ConfusionMatrixDisplay
 import os
@@ -17,13 +16,11 @@ class Model:
     """
     @brief: Initializes the CNN model
 
-    @param selected_channels: List of image channels that will be used as input to the CNN.
-                              For example: amp, phase, flr_2, mask, etc.
+    @param selected_channels: List of image channels that will be used as input to the CNN
+                              For example: amp, phase, flr_2, mask, etc
 
-    @param num_classes: Number of classes to predict. 
+    @param num_classes: Number of classes to predict
 
-    @param device : Device where the model will be trained. If None, the code uses
-                    GPU when available and CPU otherwise.
     """
     def __init__(
         self,
@@ -43,16 +40,15 @@ class Model:
         self.test_loader = None
 
         # Select computation device: GPU if available, otherwise CPU
-        self.device = device
-        if self.device is None:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         # Build the CNN model and move it to the selected device
-        self.model = self._build_model().to(self.device)
+        self.model = self.build_model().to(self.device)
         
         # Loss function for multi-class classification
         self.criterion = nn.CrossEntropyLoss()
         
+        # Initialize metrics for training history
         self.training_history = {
         "train_loss": [],
         "train_acc": [],
@@ -62,7 +58,7 @@ class Model:
             
 
     """
-    @brief: Creates dataloaders from train, validation and test dictionaries.
+    @brief: Creates dataloaders from train, validation and test dictionaries
 
     @param train_images: Training image paths dictionary
     @param val_images: Validation image paths dictionary
@@ -76,43 +72,40 @@ class Model:
         batch_size=32,
         num_workers=2,
         balance_classes=True,
-        augment_train=True,
-        augment_minority_only=True
+        augment_train=True
     ):
     
         # Create training DataLoader
         # Training can use class balancing and data augmentation
-        self.train_loader = self._create_loader(
+        self.train_loader = self.create_loader(
             data=train_images,
             shuffle=True,
             batch_size=batch_size,
             num_workers=num_workers,
             balance_classes=balance_classes,
-            augment=augment_train,
-            augment_minority_only=augment_minority_only
+            augment=augment_train
         )
     
         # Validation must not be balanced or augmented
-        self.val_loader = self._create_loader(
+        self.val_loader = self.create_loader(
             data=val_images,
             shuffle=False,
             batch_size=batch_size,
             num_workers=num_workers,
             balance_classes=False,
-            augment=False,
-            augment_minority_only=False
+            augment=False
         )
     
         # Test must not be balanced or augmented
-        self.test_loader = self._create_loader(
+        self.test_loader = self.create_loader(
             data=test_images,
             shuffle=False,
             batch_size=batch_size,
             num_workers=num_workers,
             balance_classes=False,
-            augment=False,
-            augment_minority_only=False
+            augment=False
         )
+        
     """
     @brief: Trains the CNN model. If validation data is available, also loads the best model according to validation loss
             at the end of training
@@ -445,9 +438,9 @@ class Model:
 
         # Load the sample and convert it into a tensor with the expected shape
         #
-        # self._load_sample(sample) returns a tensor with shape:
+        # self.load_sample(sample) returns a tensor with shape:
         #     [channels, height, width]
-        x = self._load_sample(sample)
+        x = self.load_sample(sample)
         
         # Add a batch dimension because PyTorch models expect inputs with shape:
         #     [batch_size, channels, height, width]
@@ -622,49 +615,15 @@ class Model:
     @param num_workers : Number of subprocesses used by the DataLoader to load data
     @return: PyTorch DataLoader
     """
-    def _create_loader(
+    def create_loader(
         self,
         data,
         shuffle,
         batch_size,
         num_workers=2,
         balance_classes=False,
-        augment=False,
-        augment_minority_only=False
+        augment=False
     ):
-    
-        # ---------------------------------------------------------
-        # -- Decide which classes will receive data augmentation --
-        # ---------------------------------------------------------
-    
-        # By default, augment_classes is None.
-        #   - if augment=True and augment_minority_only=False:
-        #       augmentation will be applied to all classes
-        #   - if augment=False:
-        #       no augmentation will be applied
-        augment_classes = None
-    
-        # If augmentation should be applied only to the minority class/classes
-        # first count how many samples exist for each class
-        if augment and augment_minority_only:
-            class_counts = {}
-    
-            # Count samples per class in the provided dataset
-            for fields in data.values():
-                class_label = fields["class"]
-                class_counts[class_label] = class_counts.get(class_label, 0) + 1
-    
-            # Get the minimum number of samples among all classes
-            min_count = min(class_counts.values())
-    
-            # Select all classes whose number of samples equals the minimum count
-            augment_classes = {
-                class_label
-                for class_label, count in class_counts.items()
-                if count == min_count
-            }
-    
-            print(f"Augmentation will be applied to minority class/classes: {augment_classes}")
     
         # ----------------------
         # --- Create Dataset ---
@@ -672,14 +631,12 @@ class Model:
     
         # The Dataset is responsible for:
         #   - storing the sample names
-        #   - loading each sample using self._load_sample
+        #   - loading each sample using self.load_sample
         #   - applying augmentation when enabled
-        dataset = _MicroalgaeDataset(
+        dataset = MicroalgaeDataset(
             data=data,
-            selected_channels=self.selected_channels,
-            load_fn=self._load_sample,
-            augment=augment,
-            augment_classes=augment_classes
+            load_fn=self.load_sample,
+            augment=augment
         )
     
         # --------------------------------
@@ -718,7 +675,7 @@ class Model:
                 replacement=True
             )
     
-            # PyTorch DataLoader cannot use shuffle=True and sampler at the same time
+            # PyTorch DataLoader cannot use shuffle=True and sampler at the same time.
             # The sampler already controls the sampling order
             shuffle = False
     
@@ -739,12 +696,11 @@ class Model:
 
 
     """
-    @brief: Loads one sample and returns it as a PyTorch tensor
+    @brief: Loads one sample and returns it as a PyTorch tensor.
+        Each selected image channel is loaded as a grayscale image, normalized
+        to the range [0, 1], and then stacked into a multi-channel tensor
 
-    Each selected image channel is loaded as a grayscale image, normalized
-    to the range [0, 1], and then stacked into a multi-channel tensor
-
-    @param fields: Dictionary containing the image paths for one sample
+    @param fields: Dictionary containing the image paths for one sample.
                    Each selected channel must be a key in this dictionary
 
     @return: Tensor with shape [C, H, W], where:
@@ -752,7 +708,7 @@ class Model:
              H = image height
              W = image width
     """
-    def _load_sample(self, fields):
+    def load_sample(self, fields):
         
         # List where each loaded channel image will be stored
         images = []
@@ -762,7 +718,6 @@ class Model:
             
             # Get the image path corresponding to the current channel
             img_path = fields[channel]
-
 
             # Read the image in grayscale mode
             img = cv2.imread(str(img_path), cv2.IMREAD_GRAYSCALE)
@@ -806,7 +761,7 @@ class Model:
 
     @return: PyTorch neural network model
     """
-    def _build_model(self):
+    def build_model(self):
 
         # Number of input channels of the CNN
         in_channels = len(self.selected_channels)
@@ -1941,17 +1896,17 @@ class Model:
         return best_class_percentiles, best_metrics
 
 """
-Internal dataset used only by Model.
+Internal dataset used only by Model
 
-This class adapts our dictionary structure to the format expected by PyTorch.
+This class adapts our dictionary structure to the format expected by PyTorch
 Each item returned by this dataset is:
     x -> image tensor with the selected channels
     y -> class label
 """
-class _MicroalgaeDataset(Dataset):
+class MicroalgaeDataset(Dataset):
 
     """
-    @param data: Dictionary containing the samples.
+    @param data: Dictionary containing the samples
                  Example:
                  {
                      "sample_001": {
@@ -1963,20 +1918,16 @@ class _MicroalgaeDataset(Dataset):
                      ...
                  }
 
-    @param selected_channels: List of image channels used as input to the model.
+    @param selected_channels: List of image channels used as input to the model
                               Example: ["amp", "phase", "flr_2"]
 
     @param load_fn: Function used to load one sample from disk and convert it
-                    into a tensor. In your case, this will usually be
-                    self._load_sample from the Model class.
+                    into a tensor
     """
-    def __init__(self, data, selected_channels, load_fn, augment=False, augment_classes=None):
+    def __init__(self, data, load_fn, augment=False):
     
         # Store input data
         self.data = data
-    
-        # Store number of channels to be used by the model
-        self.selected_channels = selected_channels
     
         # Store the function that loads and preprocesses one sample
         self.load_fn = load_fn
@@ -1984,23 +1935,19 @@ class _MicroalgaeDataset(Dataset):
         # Whether data augmentation is applied
         self.augment = augment
     
-        # Classes where augmentation is applied.
-        # If None, augmentation is applied to all classes.
-        self.augment_classes = augment_classes
-    
         # Store sample names in a list so PyTorch can access by index
         self.sample_names = list(data.keys())
 
     """
-    @brief: Returns the number of samples in the dataset.
+    @brief: Returns the number of samples in the dataset
 
-    PyTorch uses this to know how many samples are available.
+    PyTorch uses this to know how many samples are available
     """
     def __len__(self):
         return len(self.sample_names)
 
     """
-    @brief: Returns one sample from the dataset.
+    @brief: Returns one sample from the dataset
 
     @param idx: Index of the sample to load
 
@@ -2025,10 +1972,8 @@ class _MicroalgaeDataset(Dataset):
         # Apply data augmentation only when enabled
         if self.augment:
     
-            # If augment_classes is None, augment all classes
-            # Otherwise, augment only the selected classes
-            if self.augment_classes is None or class_label in self.augment_classes:
-                x = self._augment_sample(x)
+            # Augment all classes
+            x = self.augment_sample(x)
     
         # Convert class label to tensor
         y = torch.tensor(class_label, dtype=torch.long)
@@ -2038,12 +1983,12 @@ class _MicroalgaeDataset(Dataset):
     
     """
     @brief: Applies simple spatial data augmentation
-    The same transformation is applied to all channels, preserving the alignment
-    between amplitude, phase, fluorescence and mask channels
+        The same transformation is applied to all channels, preserving the alignment
+        between amplitude, phase, fluorescence and mask channels
     @param x: Tensor with shape [C, H, W]
     @return: Augmented tensor with shape [C, H, W]
     """
-    def _augment_sample(self, x):
+    def augment_sample(self, x):
 
         # Random horizontal flip
         if torch.rand(1).item() < 0.5:
@@ -2054,7 +1999,10 @@ class _MicroalgaeDataset(Dataset):
             x = torch.flip(x, dims=[1])
     
         # Random rotation by 0, 90, 180 or 270 degrees
+        # k indicates how many 90-degree rotations are applied
+        # dims=[1, 2] rotates only H and W, keeping all channels aligned
         k = torch.randint(0, 4, (1,)).item()
         x = torch.rot90(x, k=k, dims=[1, 2])
     
+        # Ensure the tensor is stored contiguously in memory after flip/rotation
         return x.contiguous()

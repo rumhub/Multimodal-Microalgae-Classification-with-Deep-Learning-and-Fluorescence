@@ -110,7 +110,12 @@ def main():
     # Global filtering
     train_data = data_analysis.global_filtering(train_data, debug=1, save_dir="../data_info/plots/global_filtering")
     val_data = data_analysis.global_filtering(val_data, debug=0)
-    test_data = data_analysis.global_filtering(test_data, debug=0)
+    test_data, removed_samples = data_analysis.global_filtering(test_data, debug=0, return_removed=True)
+
+    data_analysis.plot_removed_samples(
+        removed_samples, channels=["amp", "mask", "phase", "flr_2"], max_samples=6,
+        save_path="../data_info/plots/global_filtering/removed/Test_removed_samples.png")
+    
 
     # =================== EXPORT TO CSV ===================
     print("--------- CSV WRITER ----------------")
@@ -130,7 +135,7 @@ def main():
     # --- Model ---
     model = Model(
         selected_channels=config.SELECTED_IMG_SUFFIXES,
-        num_classes= len(config.CLASS_PREFIXES),
+        num_classes= len(config.CLASS_PREFIXES)
     )
     
     model.read_data(
@@ -140,8 +145,7 @@ def main():
         batch_size=32,
         num_workers=2,
         balance_classes=False,
-        augment_train=True,
-        augment_minority_only=False
+        augment_train=True
     )
     
     if TRAIN_MODEL:
@@ -280,7 +284,7 @@ def main():
         # Read images using the same structure as before
         prediction_reader = DataReader(
             path=PREDICT_FOLDER_PATH,
-            generated_dir="../generated/"
+            generated_dir="../images/generated_external_folder/"
         )
     
         prediction_data = prediction_reader.read_data()
