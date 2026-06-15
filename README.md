@@ -1,18 +1,18 @@
-# Clasificación multimodal de microalgas con Deep Learning
+# Multimodal Microalgae Classification with Deep Learning
 
-Este repositorio contiene el código desarrollado para clasificar automáticamente imágenes de microalgas mediante una red neuronal convolucional (CNN). El sistema trabaja con imágenes multicanal procedentes de Holodetect y combina etapas de lectura de datos, cálculo de características, filtrado de muestras no representativas, entrenamiento/evaluación del modelo y aplicación de un sistema de rechazo basado en confianza y características de la muestra.
+This repository contains the code developed to automatically classify microalgae images using a convolutional neural network (CNN). The system works with multichannel images obtained from Holodetect and combines data loading, feature extraction, filtering of non-representative samples, model training/evaluation, and a rejection system based on prediction confidence and sample characteristics.
 
-Las clases consideradas son:
+The considered classes are:
 
 - `Chlorella`
 - `Haematococcus`
 - `Scenedesmus`
 
-El flujo principal está implementado en `code/main.py`.
+The main workflow is implemented in `code/main.py`.
 
 ---
 
-## Estructura del proyecto
+## Project structure
 
 ```text
 .
@@ -34,7 +34,7 @@ El flujo principal está implementado en `code/main.py`.
 │   ├── Haematococcus_verde1/
 │   ├── Sc/
 │   ├── Scenedesmus acutus/
-│   ├── generated/
+│   └── generated/
 │
 ├── data_info/
 │   ├── train.csv
@@ -53,44 +53,44 @@ El flujo principal está implementado en `code/main.py`.
 
 ---
 
-## Descripción de los archivos principales
+## Main files
 
 ### `code/main.py`
 
-Script principal del proyecto. Ejecuta el flujo completo:
+Main project script. It runs the complete workflow:
 
-1. Fija la semilla para reproducibilidad.
-2. Lee las imágenes del directorio `images/`.
-3. Balancea las clases.
-4. Divide los datos en entrenamiento, validación y test.
-5. Calcula métricas morfológicas y de fluorescencia.
-6. Analiza correlaciones y distribuciones.
-7. Aplica el filtrado global.
-8. Exporta los datos a CSV.
-9. Entrena o carga el modelo CNN.
-10. Evalúa el modelo en validación y test.
-11. Calcula umbrales de confianza por clase.
-12. Aplica el sistema de rechazo.
-13. Genera figuras y matrices de confusión.
-14. Opcionalmente, predice muestras de una carpeta externa.
+1. Sets the random seed for reproducibility.
+2. Reads the images from the `images/` directory.
+3. Balances the classes.
+4. Splits the data into training, validation, and test sets.
+5. Computes morphological and fluorescence-based metrics.
+6. Analyzes correlations and feature distributions.
+7. Applies global filtering.
+8. Exports the data to CSV files.
+9. Trains or loads the CNN model.
+10. Evaluates the model on validation and test sets.
+11. Computes class-specific confidence thresholds.
+12. Applies the rejection system.
+13. Generates figures and confusion matrices.
+14. Optionally predicts samples from an external folder.
 
 ---
 
 ### `code/classes/config.py`
 
-Contiene la configuración global del proyecto.
+Contains the global configuration of the project.
 
-Aquí se definen:
+It defines:
 
-- Las clases del problema.
-- Los nombres de las especies.
-- Los canales de imagen disponibles.
-- Los canales usados como entrada de la CNN.
-- Las variables finales seleccionadas para el análisis y filtrado.
-- El tamaño de píxel utilizado para convertir medidas a unidades físicas.
-- La ruta del modelo guardado.
+- The classes of the problem.
+- The species names.
+- The available image channels.
+- The image channels used as CNN input.
+- The final variables selected for analysis and filtering.
+- The pixel size used to convert measurements to physical units.
+- The saved model path.
 
-Ejemplo:
+Example:
 
 ```python
 CLASS_PREFIXES = {
@@ -112,17 +112,17 @@ SELECTED_IMG_SUFFIXES = ["amp", "flr_1", "flr_2", "flr_3", "mask", "phase"]
 
 ### `code/classes/data_reader.py`
 
-Se encarga de leer las imágenes y agrupar los canales pertenecientes a una misma microalga.
+Reads the images and groups the channels belonging to the same microalga.
 
-El lector espera que las imágenes estén organizadas por carpetas de clase. La clase real se obtiene a partir del prefijo de la carpeta principal:
+The reader expects images to be organized by class folders. The true class is obtained from the prefix of the main folder:
 
-- Carpetas que empiezan por `Ch` → `Chlorella`
-- Carpetas que empiezan por `Ha` → `Haematococcus`
-- Carpetas que empiezan por `Sc` → `Scenedesmus`
+- Folders starting with `Ch` → `Chlorella`
+- Folders starting with `Ha` → `Haematococcus`
+- Folders starting with `Sc` → `Scenedesmus`
 
-Las subcarpetas `class_*` no se usan como etiqueta real, sino únicamente como contenedores de imágenes.
+The `class_*` subfolders are not used as the real label; they are only used as image containers.
 
-Estructura esperada:
+Expected structure:
 
 ```text
 images/
@@ -141,56 +141,56 @@ images/
     └── class_*/
 ```
 
-Si faltan canales individuales de fluorescencia, el programa puede generarlos a partir de la imagen compuesta `flu`.
+If individual fluorescence channels are missing, the program can generate them from the composite `flu` image.
 
 ---
 
 ### `code/classes/data_analysis.py`
 
-Contiene las funciones de análisis y preprocesado de datos.
+Contains the data analysis and preprocessing functions.
 
-Entre sus tareas principales están:
+Its main tasks include:
 
-- Cálculo de métricas morfológicas:
-  - Área de la máscara.
-  - Perímetro.
-  - Circularidad.
-  - Solidez.
-  - Relación de aspecto.
+- Calculation of morphological metrics:
+  - Mask area.
+  - Perimeter.
+  - Circularity.
+  - Solidity.
+  - Aspect ratio.
 
-- Cálculo de métricas de fluorescencia:
-  - Fluorescencia media.
-  - Proporción de área fluorescente.
+- Calculation of fluorescence metrics:
+  - Mean fluorescence.
+  - Fluorescent area ratio.
 
-- División en entrenamiento, validación y test.
-- Balanceo de clases.
-- Análisis de correlación.
-- Generación de histogramas por clase.
-- Selección de variables.
-- Filtrado global de muestras anómalas.
-- Visualización de muestras descartadas.
-- Generación del diagrama de evaluación final.
+- Train/validation/test splitting.
+- Class balancing.
+- Correlation analysis.
+- Generation of histograms by class.
+- Feature selection.
+- Global filtering of anomalous samples.
+- Visualization of discarded samples.
+- Generation of the final evaluation diagram.
 
 ---
 
 ### `code/classes/model.py`
 
-Implementa el modelo de clasificación basado en CNN y todas las funciones asociadas al entrenamiento y evaluación.
+Implements the CNN-based classification model and all functions related to training and evaluation.
 
-Incluye:
+It includes:
 
-- Construcción de la CNN.
-- Lectura de datos mediante `DataLoader`.
-- Entrenamiento del modelo.
-- Guardado y carga de pesos.
-- Evaluación en entrenamiento, validación y test.
-- Matrices de confusión.
-- Informes de clasificación.
-- Cálculo de umbrales de confianza por clase.
-- Sistema de rechazo por confianza.
-- Predicción de carpetas externas.
+- CNN construction.
+- Data loading using `DataLoader`.
+- Model training.
+- Saving and loading model weights.
+- Evaluation on training, validation, and test sets.
+- Confusion matrices.
+- Classification reports.
+- Computation of class-specific confidence thresholds.
+- Confidence-based rejection system.
+- Prediction on external folders.
 
-El modelo guardado se encuentra en:
+The saved model is located at:
 
 ```text
 code/classes/saved_models/best_model.pth
@@ -200,24 +200,24 @@ code/classes/saved_models/best_model.pth
 
 ### `code/classes/csv_writer.py`
 
-Exporta la información calculada a archivos CSV.
+Exports the calculated information to CSV files.
 
-Genera:
+It generates:
 
 - `data_info/train.csv`
 - `data_info/val.csv`
 - `data_info/test.csv`
 - `data_info/fluorescence_summary.csv`
 
-Estos archivos contienen las características calculadas para cada muestra y resúmenes estadísticos de las particiones.
+These files contain the calculated features for each sample and statistical summaries of the data partitions.
 
 ---
 
-## Requisitos
+## Requirements
 
-Se recomienda usar Python 3.10 o superior.
+Python 3.10 or later is recommended.
 
-Librerías principales:
+Main libraries:
 
 ```text
 numpy
@@ -229,13 +229,13 @@ torch
 torchvision
 ```
 
-Si se dispone de GPU NVIDIA, se recomienda instalar PyTorch con soporte CUDA siguiendo las instrucciones oficiales de PyTorch.
+If an NVIDIA GPU is available, it is recommended to install PyTorch with CUDA support following the official PyTorch installation instructions.
 
 ---
 
-## Cómo ejecutar el proyecto
+## How to run the project
 
-El script debe ejecutarse desde la carpeta `code/`, ya que las rutas relativas del proyecto están definidas desde ese directorio.
+The script must be executed from the `code/` folder because the project uses relative paths defined from that directory.
 
 ```bash
 cd code
@@ -244,58 +244,58 @@ python main.py
 
 ---
 
-## Entrenar desde cero o usar el modelo guardado
+## Train from scratch or use the saved model
 
-En `main.py` existe la variable:
+In `main.py`, the following variable controls whether the model is trained or loaded:
+
+```python
+TRAIN_MODEL
+```
+
+### Use the pretrained model
 
 ```python
 TRAIN_MODEL = False
 ```
 
-### Usar el modelo ya entrenado
-
-```python
-TRAIN_MODEL = False
-```
-
-Con esta opción se carga el modelo guardado en:
+With this option, the saved model is loaded from:
 
 ```text
 classes/saved_models/best_model.pth
 ```
 
-### Entrenar un modelo nuevo
+### Train a new model
 
 ```python
 TRAIN_MODEL = True
 ```
 
-Con esta opción el modelo se entrena desde cero, se generan las curvas de entrenamiento y se guarda el mejor modelo.
+With this option, the model is trained from scratch, training curves are generated, and the best model is saved.
 
 ---
 
-## Predicción sobre una carpeta externa
+## Prediction on an external folder
 
-Al final de `main.py` se incluye una sección para predecir imágenes de una carpeta externa.
+At the end of `main.py`, there is a section for predicting images from an external folder.
 
 ```python
 PREDICT_FOLDER = True
 PREDICT_FOLDER_PATH = "../../otros_datos/Scenedesmus"
 ```
 
-Para desactivar esta parte:
+To disable this step:
 
 ```python
 PREDICT_FOLDER = False
 ```
 
-La carpeta externa debe tener una estructura similar a la del conjunto original, con subcarpetas `class_*` y los canales de imagen correspondientes.
+The external folder must have a structure similar to the original dataset, with `class_*` subfolders and the corresponding image channels.
 
 ---
 
-## Formato esperado de las imágenes
+## Expected image format
 
-Cada microalga puede tener varios canales de imagen. Los canales contemplados inicialmente son:
+Each microalga can have several image channels. The initially considered channels are:
 
 ```text
 amp
@@ -307,7 +307,7 @@ mask
 phase
 ```
 
-Los canales finalmente utilizados como entrada de la CNN son:
+The channels finally used as input to the CNN are:
 
 ```text
 amp
@@ -318,13 +318,13 @@ mask
 phase
 ```
 
-La imagen `flu` se utiliza para extraer o verificar información de fluorescencia, pero no se usa directamente como canal de entrada del modelo final.
+The `flu` image is used to extract or verify fluorescence information, but it is not used directly as an input channel of the final model.
 
 ---
 
-## Variables calculadas
+## Calculated variables
 
-El programa calcula distintas variables morfológicas y de fluorescencia. Las variables finales seleccionadas son:
+The program calculates several morphological and fluorescence-based variables. The final selected variables are:
 
 ```text
 MASK_AREA
@@ -334,15 +334,15 @@ MEAN_FLUORESCENCE_FLU2
 FLUORESCENT_AREA_RATIO_FLU2
 ```
 
-Estas variables se usan principalmente para análisis, filtrado global y generación de resúmenes estadísticos.
+These variables are mainly used for analysis, global filtering, and statistical summaries.
 
 ---
 
-## Salidas generadas
+## Generated outputs
 
-Durante la ejecución se generan archivos en el directorio `data_info/`.
+During execution, files are generated inside the `data_info/` directory.
 
-### Archivos CSV
+### CSV files
 
 ```text
 data_info/train.csv
@@ -351,25 +351,25 @@ data_info/test.csv
 data_info/fluorescence_summary.csv
 ```
 
-### Figuras
+### Figures
 
-Las figuras se guardan en:
+Figures are saved in:
 
 ```text
 data_info/plots/
 ```
 
-Subcarpetas principales:
+Main subfolders:
 
 ```text
-correlation/          Matrices de correlación.
-features_by_class/   Distribuciones comparativas por clase.
-global_filtering/    Histogramas antes/después del filtrado global.
-results/             Resultados finales del modelo.
-unselected_features/ Variables calculadas pero no seleccionadas.
+correlation/          Correlation matrices.
+features_by_class/   Comparative distributions by class.
+global_filtering/    Histograms before and after global filtering.
+results/             Final model results.
+unselected_features/ Calculated but non-selected variables.
 ```
 
-Dentro de `results/` se generan, entre otras:
+Inside `results/`, the following files are generated, among others:
 
 ```text
 Confusion_matrix_val.png
@@ -382,69 +382,69 @@ Threshold_search/
 
 ---
 
-## Flujo general del sistema
+## General system workflow
 
 ```text
-Lectura de imágenes
+Image reading
         ↓
-Agrupación de canales por microalga
+Channel grouping by microalga
         ↓
-Balanceo de clases
+Class balancing
         ↓
-División train / validation / test
+Train / validation / test split
         ↓
-Cálculo de métricas morfológicas y de fluorescencia
+Morphological and fluorescence metric calculation
         ↓
-Análisis de correlación y selección de variables
+Correlation analysis and feature selection
         ↓
-Filtrado global de muestras no representativas
+Global filtering of non-representative samples
         ↓
-Entrenamiento o carga de la CNN
+CNN training or loading
         ↓
-Evaluación en validación y test
+Validation and test evaluation
         ↓
-Cálculo de umbrales de confianza por clase
+Class-specific confidence threshold calculation
         ↓
-Sistema de rechazo
+Rejection system
         ↓
-Resultados finales
+Final results
 ```
 
 ---
 
-## Sistema de rechazo
+## Rejection system
 
-Además de clasificar cada imagen, el sistema puede rechazar predicciones poco fiables.
+In addition to classifying each image, the system can reject low-confidence predictions.
 
-Para ello, se calculan umbrales de confianza específicos por clase usando el conjunto de validación. Durante la inferencia, una predicción solo se acepta si la confianza del modelo supera el umbral correspondiente a la clase predicha.
+To do this, class-specific confidence thresholds are computed using the validation set. During inference, a prediction is only accepted if the model confidence is above the threshold corresponding to the predicted class.
 
-Esto permite aumentar la fiabilidad de las predicciones aceptadas, a cambio de rechazar una pequeña parte de las muestras.
+This increases the reliability of accepted predictions at the cost of rejecting a small portion of samples.
 
 ---
 
-## Reproducibilidad
+## Reproducibility
 
-El script fija una semilla aleatoria para mejorar la reproducibilidad:
+The script sets a random seed to improve reproducibility:
 
 ```python
 SEED = 42
 ```
 
-También se configuran opciones de PyTorch para reducir la variabilidad entre ejecuciones.
+PyTorch options are also configured to reduce variability between runs.
 
 ---
 
-## Notas importantes
+## Important notes
 
-- Ejecutar siempre desde la carpeta `code/`.
-- Las rutas del proyecto están definidas de forma relativa.
-- La clase real se obtiene de la carpeta principal, no de las subcarpetas `class_*`.
-- El conjunto de test solo se usa para la evaluación final.
-- Los límites del filtrado global se calculan usando únicamente el conjunto de entrenamiento.
-- Los umbrales de confianza se calculan usando únicamente el conjunto de validación.
+- Always run the project from the `code/` folder.
+- Project paths are defined relatively.
+- The real class is obtained from the main folder, not from the `class_*` subfolders.
+- The test set is used only for the final evaluation.
+- Global filtering limits are computed using only the training set.
+- Confidence thresholds are computed using only the validation set.
 
 ---
 
-## Autor
+## Author
 
 David Sánchez Pérez

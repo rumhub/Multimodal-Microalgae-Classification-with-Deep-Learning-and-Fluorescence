@@ -117,8 +117,8 @@ class Model:
     """
     def train(self, num_epochs=30, learning_rate=1e-4, patience=40):
         
-        # Check that the training DataLoader has already been created.
-        # If not, the model cannot be trained.
+        # Check that the training DataLoader has already been created
+        # If not, the model cannot be trained
         if self.train_loader is None:
             raise ValueError("Training data has not been loaded. Call read_data() first.")
     
@@ -133,8 +133,7 @@ class Model:
         optimizer = torch.optim.AdamW(self.model.parameters(), lr=learning_rate, weight_decay=1e-4)
 
     
-        # Main training loop. Each iteration corresponds to one full pass
-        # over the training dataset.
+        # Main training loop. Each iteration corresponds to one full pass over the training dataset
         for epoch in range(num_epochs):
             
             # Train the model for one epoch and obtain training loss and accuracy
