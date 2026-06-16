@@ -149,11 +149,8 @@ def main():
     )
     
     if TRAIN_MODEL:
-        # Train the model from scratch
-        model.train(num_epochs=300, learning_rate=1e-4)
-        
-        # Plot training curves
-        model.plot_training_curves(save_dir="../data_info/plots/training")
+        # Train the model from scratch and plot training curves
+        model.train(num_epochs=300, learning_rate=1e-4, save_dir="../data_info/plots/training")
         
         # Save the trained model weights
         model.save(config.MODEL_PATH)

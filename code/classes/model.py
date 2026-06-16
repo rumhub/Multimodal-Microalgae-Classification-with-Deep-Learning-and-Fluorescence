@@ -54,8 +54,11 @@ class Model:
         "train_acc": [],
         "val_loss": [],
         "val_acc": [],
+        "best_epoch" : None,
+        "best_val_loss": None,
+        "best_val_acc": None
         }
-            
+
 
     """
     @brief: Creates dataloaders from train, validation and test dictionaries
@@ -113,9 +116,11 @@ class Model:
     @param num_epochs : Number of complete passes over the training dataset
 
     @param learning_rate: Step size used by the optimizer to update the model weights
+    
+    @param save_dir: Directory where the plots will be saved. If None, plots are only shown.
 
     """
-    def train(self, num_epochs=30, learning_rate=1e-4, patience=40):
+    def train(self, num_epochs=30, learning_rate=1e-4, patience=40, save_dir=None):
         
         # Check that the training DataLoader has already been created
         # If not, the model cannot be trained
@@ -125,7 +130,7 @@ class Model:
         # Initilaize metrics of the best model
         best_val_loss = float("inf")
         best_val_acc = 0.0
-        best_epoch = -1
+        best_epoch = 0
         best_model_state = None
         epochs_without_improvement = 0
     
@@ -137,14 +142,13 @@ class Model:
         for epoch in range(num_epochs):
             
             # Train the model for one epoch and obtain training loss and accuracy
-            train_loss, train_acc = self._train_one_epoch(optimizer)
+            train_loss, train_acc = self.train_one_epoch(optimizer)
             
             # Store training metrics
             self.training_history["train_loss"].append(train_loss)
             self.training_history["train_acc"].append(train_acc)
 
-            # If a validation DataLoader exists, evaluate the model after
-            # each training epoch.
+            # If a validation DataLoader exists, evaluate the model after each training epoch
             if self.val_loader is not None:
                 val_loss, val_acc = self.evaluate(split="val")
                 
@@ -152,8 +156,7 @@ class Model:
                 self.training_history["val_loss"].append(val_loss)
                 self.training_history["val_acc"].append(val_acc)
     
-                # Check whether the current model is better than all previous ones, based on
-                # validation loss
+                # Check whether the current model is better than all previous ones, based on validation loss
                 if val_loss < best_val_loss:
                     
                     # Update the best model metrics
@@ -205,8 +208,7 @@ class Model:
                     f"Train loss: {train_loss:.4f} | Train acc: {train_acc:.4f}"
                 )
     
-        # After training, restore the model weights from the epoch with the
-        # lowest validation loss
+        # After training, restore the model weights from the epoch with the lowest validation loss
         if best_model_state is not None:
             self.model.load_state_dict(best_model_state)
             
@@ -219,39 +221,41 @@ class Model:
                 f"\nBest model restored from epoch {best_epoch} "
                 f"with Val loss: {best_val_loss:.4f} | Val acc: {best_val_acc:.4f}"
             )
+            
+            # Store best model metrics
+            self.training_history["best_epoch"] = best_epoch
+            self.training_history["best_val_loss"] = best_val_loss
+            self.training_history["best_val_acc"] = best_val_acc
+            
+            # Plot training curves
+            self.plot_training_curves(save_dir=save_dir)
 
 
+    """
+    @brief: Plots training and validation loss/accuracy curves
+    
+    @param save_dir: Directory where the plots will be saved. If None, plots are only shown.
+    """
     def plot_training_curves(self, save_dir=None):
-        """
-        @brief: Plots training and validation loss/accuracy curves.
     
-        @param save_dir: Directory where the plots will be saved.
-                         If None, plots are only shown.
-        """
-    
-        import os
-        import matplotlib.pyplot as plt
-    
+        # Check that training metrics are available
         if len(self.training_history["train_loss"]) == 0:
             print("No training history available. Train the model first.")
             return
     
+        # Create epoch numbers starting at 1 for plotting
         epochs = np.arange(1, len(self.training_history["train_loss"]) + 1)
     
+        # Create the output directory if plots must be saved
         if save_dir is not None:
             os.makedirs(save_dir, exist_ok=True)
-    
-        best_epoch = None
-    
-        if len(self.training_history["val_loss"]) > 0:
-            best_epoch = int(np.argmin(self.training_history["val_loss"])) + 1
-            best_val_loss = self.training_history["val_loss"][best_epoch - 1]
     
         # -------------------------
         # Loss curve
         # -------------------------
         plt.figure(figsize=(8, 5))
     
+        # Plot training loss
         plt.plot(
             epochs,
             self.training_history["train_loss"],
@@ -259,6 +263,7 @@ class Model:
             linewidth=1.8
         )
     
+        # Plot validation loss if validation metrics exist
         if len(self.training_history["val_loss"]) > 0:
             plt.plot(
                 epochs,
@@ -267,22 +272,25 @@ class Model:
                 linewidth=1.8
             )
     
+            # Mark the epoch selected as the best one according to validation loss
             plt.axvline(
-                best_epoch,
+                self.training_history["best_epoch"],
                 linestyle="--",
                 linewidth=1.2,
                 color="gray",
-                label=f"Best epoch: {best_epoch}"
+                label=f"Best epoch: {self.training_history['best_epoch']}"
             )
     
+            # Mark the best validation loss point
             plt.scatter(
-                best_epoch,
-                best_val_loss,
+                self.training_history["best_epoch"],
+                self.training_history["best_val_loss"],
                 color="black",
                 s=30,
                 zorder=3
             )
     
+        # Configure and save/show the loss plot
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
         plt.title("Training and validation loss")
@@ -305,6 +313,7 @@ class Model:
         # -------------------------
         plt.figure(figsize=(8, 5))
     
+        # Plot training accuracy
         plt.plot(
             epochs,
             self.training_history["train_acc"],
@@ -312,6 +321,7 @@ class Model:
             linewidth=1.8
         )
     
+        # Plot validation accuracy if validation metrics exist
         if len(self.training_history["val_acc"]) > 0:
             plt.plot(
                 epochs,
@@ -320,23 +330,26 @@ class Model:
                 linewidth=1.8
             )
     
-            if best_epoch is not None:
+            # Mark the same best epoch selected according to validation loss
+            if self.training_history["best_epoch"] is not None:
                 plt.axvline(
-                    best_epoch,
+                    self.training_history["best_epoch"],
                     linestyle="--",
                     linewidth=1.2,
                     color="gray",
-                    label=f"Best epoch: {best_epoch}"
+                    label=f"Best epoch: {self.training_history['best_epoch']}"
                 )
     
+                # Mark the validation accuracy obtained at the best epoch
                 plt.scatter(
-                    best_epoch,
-                    self.training_history["val_acc"][best_epoch - 1],
+                    self.training_history["best_epoch"],
+                    self.training_history["best_val_acc"],
                     color="black",
                     s=30,
                     zorder=3
                 )
     
+        # Configure and save/show the accuracy plot
         plt.xlabel("Epoch")
         plt.ylabel("Accuracy")
         plt.title("Training and validation accuracy")
@@ -537,7 +550,7 @@ class Model:
 
     @return: Average training loss and training accuracy for the epoch
     """
-    def _train_one_epoch(self, optimizer):
+    def train_one_epoch(self, optimizer):
 
         # Set the model to training mode
         # This enables training-specific behavior in layers such as Dropout
