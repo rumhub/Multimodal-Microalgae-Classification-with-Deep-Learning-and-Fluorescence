@@ -367,6 +367,7 @@ class Model:
         plt.show()
         plt.close()
         
+
     """
     @brief: Evaluates the model on a selected dataset split
 
@@ -375,12 +376,12 @@ class Model:
     """
     def evaluate(self, split="test"):
 
-        # Select the corresponding DataLoader depending on the spli
-        loader = self._get_loader(split)
+        # Select the corresponding DataLoader depending on the split
+        loader = self.get_loader(split)
 
         # Set the model to evaluation mode
-        # This disables training-specific behavior such as dropout and changes
-        # batch normalization to use learned statistics instead of batch statistics
+        # This disables training-specific behavior such as dropout and changes batch normalization to use learned statistics 
+        # instead of batch statistics
         self.model.eval()
 
         # Accumulated loss over all evaluated samples
@@ -393,8 +394,8 @@ class Model:
         total = 0
 
         # Disable gradient computation
-        # During evaluation we do not update the model weights, so gradients
-        # are not needed. This reduces memory usage and speeds up computation
+        # During evaluation we do not update the model weights, so gradients are not needed. This reduces memory usage 
+        # and speeds up computation
         with torch.no_grad():
             
             # Iterate over all batches in the selected DataLoader
@@ -411,15 +412,14 @@ class Model:
                 loss = self.criterion(logits, y)
 
                 # Accumulate the total loss
-                #
+                
                 # loss.item() gives the average loss of the current batch
-                # Multiplying by x.size(0) converts it into total batch loss,
-                # so that later we can compute the correct average over all samples
+                # Multiplying by x.size(0) converts it into total batch loss, so that later we can compute the correct 
+                # average over all samples
                 total_loss += loss.item() * x.size(0)
 
                 # Get the predicted class for each sample
-                # torch.argmax(logits, dim=1) returns the index of the class with
-                # the highest score for each image in the batch
+                # torch.argmax(logits, dim=1) returns the index of the class with the highest score for each image in the batch
                 preds = torch.argmax(logits, dim=1)
                 
                 # Count how many predictions are equal to the real labels
@@ -438,10 +438,10 @@ class Model:
 
 
     """
-    Predicts the class of one sample.
+    @brief: Predicts the class of one sample
 
-    @param sample: Dictionary with image paths for the selected channels.
-    @return: Predicted class index and confidence score.
+    @param sample: Dictionary with image paths for the selected channels
+    @return: Predicted class index and confidence score
     """
     def predict(self, sample):
         
@@ -449,14 +449,14 @@ class Model:
         self.model.eval()
 
         # Load the sample and convert it into a tensor with the expected shape
-        #
+        
         # self.load_sample(sample) returns a tensor with shape:
         #     [channels, height, width]
         x = self.load_sample(sample)
         
         # Add a batch dimension because PyTorch models expect inputs with shape:
         #     [batch_size, channels, height, width]
-        #
+        
         # Since we are predicting only one sample, batch_size = 1
         # Then move the tensor to the same device as the model
         x = x.unsqueeze(0).to(self.device)
@@ -470,44 +470,17 @@ class Model:
             logits = self.model(x)
             
             # Convert logits into probabilities using softmax
-            # Each value will be between 0 and 1, and all probabilities
-            # for the sample will sum to 1
+            # Each value will be between 0 and 1, and all probabilities for the sample will sum to 1
             probs = torch.softmax(logits, dim=1)
             
             # Get the highest probability and its corresponding class index
             confidence, predicted_class = torch.max(probs, dim=1)
 
         # Convert PyTorch tensors to standard Python values
-        #
+        
         # predicted_class.item() extracts the scalar value from the tensor
         # confidence.item() extracts the scalar probability from the tensor
         return int(predicted_class.item()), float(confidence.item())
-
-
-    """
-    @brief: Predicts all samples in a dictionary
-
-    @param data: Dictionary containing the samples
-
-    @return: Dictionary with true class, predicted class and confidence
-    """
-    def predict_dataset(self, data):
-
-    
-        results = {}
-    
-        for sample_name, fields in data.items():
-    
-            predicted_class, confidence = self.predict(fields)
-            true_class = fields["class"]
-    
-            results[sample_name] = {
-                "true_class": true_class,
-                "predicted_class": predicted_class,
-                "confidence": confidence,
-            }
-    
-        return results
 
 
     """
@@ -517,9 +490,8 @@ class Model:
     def save(self, output_path):
         
         # Save only the model parameters, not the full Python model object
-        #
-        # self.model.state_dict() contains the learned weights and biases
-        # of the neural network
+        
+        # self.model.state_dict() contains the learned weights and biases of the neural network
         torch.save(self.model.state_dict(), output_path)
 
 
@@ -530,21 +502,18 @@ class Model:
     def load(self, model_path):
 
         # Load the saved model parameters from disk
-        #
-        # map_location=self.device ensures that the weights are loaded onto
-        # the correct device, either GPU or CPU
+        
+        # map_location=self.device ensures that the weights are loaded into the correct device, either GPU or CPU
         self.model.load_state_dict(torch.load(model_path, map_location=self.device))
         
         # Move the model to the selected device
-        #
-        # This ensures that the model and input tensors are on the same device
-        # during evaluation or prediction
+        
+        # This ensures that the model and input tensors are on the same device during evaluation or prediction
         self.model.to(self.device)
 
 
     """
-    @brief: Trains the model for one epoch, (one pass over all batches 
-                                             in the training set)
+    @brief: Trains the model for one epoch, (one pass over all batches in the training set)
     
     @param optimizer: Optimizer used to update the CNN weights during training
 
@@ -553,8 +522,7 @@ class Model:
     def train_one_epoch(self, optimizer):
 
         # Set the model to training mode
-        # This enables training-specific behavior in layers such as Dropout
-        # and BatchNorm
+        # This enables training-specific behavior in layers such as Dropout and BatchNorm
         self.model.train()
 
         # Accumulated loss over all training samples
@@ -574,9 +542,8 @@ class Model:
             y = y.to(self.device)
 
             # Reset gradients from the previous batch
-            #
-            # PyTorch accumulates gradients by default, so this must be done
-            # before computing the gradients for the current batch
+            
+            # PyTorch accumulates gradients by default, so this must be done before computing the gradients for the current batch
             optimizer.zero_grad()
 
             # Forward pass
@@ -594,8 +561,8 @@ class Model:
             optimizer.step()
 
             # Accumulate the total loss
-            #
-            # loss.item() is the average loss of the current batch.
+            
+            # loss.item() is the average loss of the current batch
             # Multiplying by x.size(0) converts it into total batch loss
             total_loss += loss.item() * x.size(0)
 
@@ -745,22 +712,22 @@ class Model:
             images.append(img)
 
         # Stack all loaded channel images into a single NumPy array
-        #
+        
         # Before stacking:
         #   images = list of arrays with shape [H, W]
-        #
+        
         # After stacking with axis=-1:
         #   x has shape [H, W, C]
         x = np.stack(images, axis=-1)
         
         # Convert the NumPy array to a PyTorch tensor and reorder dimensions
-        #
+        
         # PyTorch convolutional networks expect images with shape:
         #   [C, H, W]
-        #
+        
         # But x currently has shape:
         #   [H, W, C]
-        #
+        
         # permute(2, 0, 1) changes:
         #   [H, W, C] -> [C, H, W]
         x = torch.from_numpy(x).permute(2, 0, 1).float()
@@ -835,24 +802,15 @@ class Model:
     """
     @brief: Plots the threshold search curves for each class
     
-    For each class, the plot shows:
-        - confidence threshold
-        - coverage
-        - accepted accuracy
-        - selected threshold
-        - minimum accepted ratio
-    
     @param threshold_curves: Dictionary generated by compute_class_confidence_thresholds
     @param min_accepted_ratio: Minimum accepted ratio used during threshold search
     @param save_dir: Directory where plots are saved
-    @param split: Dataset split used to compute the thresholds
     """
     def plot_confidence_threshold_search(
         self,
         threshold_curves,
         min_accepted_ratio=0.8,
-        save_dir="../data_info/plots/results/threshold_search",
-        split="val"
+        save_dir="../data_info/plots/results/threshold_search"
     ):
     
         os.makedirs(save_dir, exist_ok=True)
@@ -867,6 +825,7 @@ class Model:
     
         for class_idx, curve in threshold_curves.items():
     
+            # Get curve values
             threshold_values = np.array(curve["threshold"])
             coverage_values = np.array(curve["coverage"]) * 100
             accuracy_values = np.array(curve["accuracy"]) * 100
@@ -875,17 +834,10 @@ class Model:
                 print(f"No threshold curve available for class {class_idx}")
                 continue
     
+            # Get selected values
             selected_threshold = curve["selected_threshold"]
             selected_coverage = curve["selected_coverage"] * 100
             selected_accuracy = curve["selected_accuracy"] * 100
-    
-            # Find closest threshold index for plotting the selected point
-            selected_index = int(
-                np.argmin(np.abs(threshold_values - selected_threshold))
-            )
-    
-            selected_coverage_plot = coverage_values[selected_index]
-            selected_accuracy_plot = accuracy_values[selected_index]
     
             plt.figure(figsize=(8, 5))
     
@@ -932,7 +884,7 @@ class Model:
             # Selected accuracy point
             plt.scatter(
                 [selected_threshold],
-                [selected_accuracy_plot],
+                [selected_accuracy],
                 s=90,
                 color="tab:orange",
                 edgecolor="black",
@@ -942,7 +894,7 @@ class Model:
             # Selected coverage point
             plt.scatter(
                 [selected_threshold],
-                [selected_coverage_plot],
+                [selected_coverage],
                 s=90,
                 color="tab:blue",
                 edgecolor="black",
@@ -955,7 +907,7 @@ class Model:
             if text_x > 0.78:
                 text_x = selected_threshold - 0.28
     
-            text_y = min(100.2, max(selected_accuracy_plot, selected_coverage_plot) + 0.2)
+            text_y = min(100.2, max(selected_accuracy, selected_coverage) + 0.2)
     
             plt.text(
                 text_x,
@@ -975,7 +927,7 @@ class Model:
             )
     
             plt.title(
-                f"Confidence threshold search - {class_names[class_idx]} ({split})"
+                f"Confidence threshold search - {class_names[class_idx]} ({'val'})"
             )
     
             plt.xlabel("Confidence threshold")
@@ -1001,11 +953,9 @@ class Model:
             print(f"Threshold search plot saved in: {save_path}")
 
     """
-    @brief: Computes one confidence threshold per predicted class using a selected split
+    @brief: Computes one confidence threshold per predicted class using the validation split
     
-    @param split: Dataset split used to compute the thresholds. Usually "val"
-    @param min_accepted_ratio: Minimum fraction of predictions that must be accepted
-                               for each predicted class
+    @param min_accepted_ratio: Minimum fraction of predictions that must be accepted for each predicted class
     @param thresholds: Candidate thresholds to evaluate
     @param debug: If True, prints the threshold selection summary
     @param plot: If True, generates one threshold-search plot per class
@@ -1015,7 +965,6 @@ class Model:
     """
     def compute_class_confidence_thresholds(
         self,
-        split="val",
         min_accepted_ratio=0.8,
         thresholds=None,
         debug=True,
@@ -1027,7 +976,7 @@ class Model:
             thresholds = np.arange(0.0, 1.01, 0.01)
     
         # Get predictions from a data split
-        results = self.predict_loader(split=split)
+        results = self.predict_loader(split="val")
     
         # Default threshold for each class
         class_thresholds = {
@@ -1127,11 +1076,8 @@ class Model:
                     continue
     
                 # Select threshold maximizing accepted accuracy.
-                # In case of tie, keep the one with higher coverage.
-                if (
-                    accuracy > best_accuracy or
-                    (accuracy == best_accuracy and accepted_ratio > best_accepted_ratio)
-                ):
+                # In case of tie, keep the one with higher coverage
+                if (accuracy > best_accuracy or (accuracy == best_accuracy and accepted_ratio > best_accepted_ratio)):
                     best_accuracy = accuracy
                     best_threshold = threshold
                     best_accepted_ratio = accepted_ratio
@@ -1168,8 +1114,7 @@ class Model:
             self.plot_confidence_threshold_search(
                 threshold_curves=threshold_curves,
                 min_accepted_ratio=min_accepted_ratio,
-                save_dir=save_dir,
-                split=split
+                save_dir=save_dir
             )
     
         return class_thresholds
@@ -1177,10 +1122,9 @@ class Model:
 
 
     """
-    @brief: Predicts all samples from a selected DataLoader
-    
-    If class_thresholds is provided, class-specific confidence filtering is
-    also applied.
+    @brief: Predicts all samples from a selected DataLoader.
+            If class_thresholds is provided, class-specific confidence filtering is
+            also applied.
     
     @param split: Dataset split to predict. It can be "train", "val" or "test"
     @param class_thresholds: Optional dictionary with one confidence threshold per class
@@ -1190,7 +1134,7 @@ class Model:
     def predict_loader(self, split="test", class_thresholds=None):
     
         # Get the DataLoader corresponding to the selected split
-        loader = self._get_loader(split)
+        loader = self.get_loader(split)
     
         # Set model to evaluation mode
         self.model.eval()
@@ -1218,12 +1162,9 @@ class Model:
                 confidences, predicted_classes = torch.max(probs, dim=1)
     
                 # Store results sample by sample
-                for sample_name, true_class, predicted_class, confidence in zip(
-                    sample_names,
-                    y.cpu(),
-                    predicted_classes.cpu(),
-                    confidences.cpu()
-                ):
+                for sample_name, true_class, predicted_class, confidence in zip(sample_names, y.cpu(), predicted_classes.cpu(),
+                    confidences.cpu()):
+                    
                     # Convert from PyTorch scalar tensors to Python values
                     true_class = int(true_class.item())
                     predicted_class = int(predicted_class.item())
@@ -1238,13 +1179,7 @@ class Model:
                     }
     
                     # If thresholds are provided, apply confidence filtering
-                    if class_thresholds is not None:
-    
-                        # Check that a threshold exists for the predicted class
-                        if predicted_class not in class_thresholds:
-                            raise ValueError(
-                                f"No confidence threshold defined for class {predicted_class}"
-                            )
+                    if class_thresholds is not None and predicted_class in class_thresholds:
     
                         # Get the confidence threshold associated with the predicted class
                         threshold = class_thresholds[predicted_class]
@@ -1266,7 +1201,7 @@ class Model:
     @param title: Plot title
     @param save_path: Path where the plot will be saved
     """
-    def _plot_confusion_matrix(self, cm, title="Confusion matrix", save_path=None):
+    def plot_confusion_matrix(self, cm, title="Confusion matrix", save_path=None):
 
         class_names = [
             config.CLASS_NAMES[class_prefix]
@@ -1315,8 +1250,7 @@ class Model:
     
     @return: Dictionary with filtering evaluation metrics
     """
-    def evaluate_with_confidence_filter(self, split="test", class_thresholds=None,
-        plot_confusion=True, save_path=None):
+    def evaluate_with_confidence_filter(self, split="test", class_thresholds=None, plot_confusion=True, save_path=None):
     
         if class_thresholds is None:
             raise ValueError("class_thresholds must be provided.")
@@ -1363,22 +1297,54 @@ class Model:
         else:
             accepted_accuracy = 0.0
     
-        original_class_metrics = self._compute_classification_metrics_from_results(
+        original_class_metrics = self.compute_classification_metrics_from_results(
             results,
             accepted_only=False
         )
 
-        accepted_class_metrics = self._compute_classification_metrics_from_results(
+        accepted_class_metrics = self.compute_classification_metrics_from_results(
             results,
             accepted_only=True
         )
 
         if plot_confusion:
-            self._plot_confusion_matrix(
+            self.plot_confusion_matrix(
                 cm=accepted_class_metrics["confusion_matrix"],
                 title=f"Accepted predictions confusion matrix ({split})",
                 save_path=save_path)
 
+        print(f"\n{split} results with confidence filter only:")
+
+        print(f"Total samples: {total_samples}")
+        print(f"Accepted predictions: {num_accepted}")
+        print(f"Rejected predictions: {num_rejected}")
+        print(f"Coverage: {coverage:.4f}")
+        
+        print("\nOriginal performance:")
+        print(f"Accuracy: {original_accuracy:.4f}")
+        print(f"Macro F1: {original_class_metrics['macro_f1']:.4f}")
+        print(f"Weighted F1: {original_class_metrics['weighted_f1']:.4f}")
+        
+        print("Original classification report:")
+        print(original_class_metrics["classification_report"])
+
+        print("Original confusion matrix:")
+        print(original_class_metrics["confusion_matrix"])
+
+        
+        
+        print("\nPerformance on accepted predictions:")
+        print(f"Accepted accuracy: {accepted_accuracy:.4f}")
+        print(f"Accepted macro F1: {accepted_class_metrics['macro_f1']:.4f}")
+        print(f"Accepted weighted F1: {accepted_class_metrics['weighted_f1']:.4f}")
+        
+        print("\nAccepted predictions classification report:")
+        print(accepted_class_metrics["classification_report"])
+        
+        print("Accepted predictions confusion matrix:")
+        print(accepted_class_metrics["confusion_matrix"])
+
+            
         return {
             "total_samples": total_samples,
             "num_accepted": num_accepted,
@@ -1401,8 +1367,7 @@ class Model:
         }
     
     """
-    @brief: Predicts all samples and counts how many are assigned to each class
-           Real labels are ignored
+    @brief: Predicts all samples and counts how many are assigned to each class. Real labels are ignored
     
     @param data: Dictionary with image paths for each sample
     @param class_thresholds: Optional confidence thresholds per predicted class
@@ -1411,37 +1376,49 @@ class Model:
     """
     def predict_and_count_classes(self, data, class_thresholds=None):
 
+        # Count total predictions assigned to each class
         prediction_counts = {
             class_idx: 0
             for class_idx in range(self.num_classes)
         }
     
+        # Count accepted predictions assigned to each class
         accepted_counts = {
             class_idx: 0
             for class_idx in range(self.num_classes)
         }
     
+        # Count predictions rejected by the confidence filter
         rejected_count = 0
+        
+        # Store detailed prediction information for each sample
         results = []
     
+        # Predict each sample independently
         for sample_name, fields in data.items():
     
+            # Obtain the predicted class and its confidence score
             predicted_class, confidence = self.predict(fields)
     
+            # Count this prediction for the corresponding predicted class
             prediction_counts[predicted_class] += 1
     
+            # By default, accept every prediction when no thresholds are provided
             accepted = True
             threshold = None
     
+            # Apply the confidence threshold associated with the predicted class
             if class_thresholds is not None:
                 threshold = class_thresholds[predicted_class]
                 accepted = confidence >= threshold
     
+            # Update accepted or rejected prediction counters
             if accepted:
                 accepted_counts[predicted_class] += 1
             else:
                 rejected_count += 1
     
+            # Store the prediction result for this sample
             results.append({
                 "sample_name": sample_name,
                 "predicted_class": predicted_class,
@@ -1450,12 +1427,14 @@ class Model:
                 "accepted": accepted,
             })
     
+        # Print prediction summary
         print("\n--------- PREDICTION SUMMARY ----------------")
     
         print("Predicted classes:")
         for class_idx, count in prediction_counts.items():
             print(f"Class {class_idx}: {count}")
     
+        # Show filtering information only when thresholds were applied
         if class_thresholds is not None:
             print("\nAccepted predictions:")
             for class_idx, count in accepted_counts.items():
@@ -1469,8 +1448,7 @@ class Model:
 
 
     """
-    @brief: Evaluates the model using class-specific feature filtering and
-            class-specific confidence thresholds
+    @brief: Evaluates the model using class-specific feature filtering and class-specific confidence thresholds
     
     A prediction is accepted only if:
         1. The sample passes the feature limits of the predicted class
@@ -1483,22 +1461,13 @@ class Model:
     
     @return: Dictionary with filtering evaluation metrics
     """
-    def evaluate_with_class_and_confidence_filter(
-        self,
-        split,
-        features,
-        data_analysis,
-        class_thresholds
-    ):
+    def evaluate_with_class_and_confidence_filter(self, split, features, data_analysis, class_thresholds, debug = 0):
     
         if class_thresholds is None:
             raise ValueError("class_thresholds must be provided.")
     
         # Predict all samples and compute confidence filtering
-        results = self.predict_loader(
-            split=split,
-            class_thresholds=class_thresholds
-        )
+        results = self.predict_loader(split=split, class_thresholds=class_thresholds)
     
         # Apply class-specific feature filtering and combine both filters
         for result in results:
@@ -1512,12 +1481,8 @@ class Model:
     
             sample_features = features[sample_name]
     
-            # First filter: check whether the sample is compatible with
-            # the limits of the predicted class
-            class_filter_accepted = data_analysis.passes_class_filter(
-                sample_features,
-                predicted_class
-            )
+            # First filter: check whether the sample is compatible with the limits of the predicted class
+            class_filter_accepted = data_analysis.passes_class_filter(sample_features, predicted_class)
     
             # Second filter: check whether the confidence is high enough
             confidence_accepted = result["confidence_accepted"]
@@ -1526,7 +1491,6 @@ class Model:
             result["class_filter_accepted"] = class_filter_accepted
             result["confidence_accepted"] = confidence_accepted
     
-            # Final decision.
             # A prediction is accepted only if it passes both filters.
             result["accepted"] = class_filter_accepted and confidence_accepted
     
@@ -1583,15 +1547,51 @@ class Model:
             for result in results
         )
     
-        original_class_metrics = self._compute_classification_metrics_from_results(
+        original_class_metrics = self.compute_classification_metrics_from_results(
             results,
             accepted_only=False
         )
 
-        accepted_class_metrics = self._compute_classification_metrics_from_results(
+        accepted_class_metrics = self.compute_classification_metrics_from_results(
             results,
             accepted_only=True
         )
+        
+        if debug == 1:
+            print(f"\n{split} results with class filter + confidence filter:")
+    
+            print(f"Total samples: {total_samples}")
+            print(f"Accepted predictions: {num_accepted}")
+            print(f"Rejected predictions: {num_rejected}")
+            print(f"Coverage: {coverage:.4f}")
+            
+            print("\nOriginal performance:")
+            print(f"Accuracy: {original_accuracy:.4f}")
+            print(f"Macro F1: {original_class_metrics['macro_f1']:.4f}")
+            print(f"Weighted F1: {original_class_metrics['weighted_f1']:.4f}")
+            
+            print("Original classification report:")
+            print(original_class_metrics["classification_report"])
+    
+            print("Original confusion matrix:")
+            print(original_class_metrics["confusion_matrix"])
+    
+            
+            
+            print("\nPerformance on accepted predictions:")
+            print(f"Accepted accuracy: {accepted_accuracy:.4f}")
+            print(f"Accepted macro F1: {accepted_class_metrics['macro_f1']:.4f}")
+            print(f"Accepted weighted F1: {accepted_class_metrics['weighted_f1']:.4f}")
+            
+            print("\nAccepted predictions classification report:")
+            print(accepted_class_metrics["classification_report"])
+            
+            print("Accepted predictions confusion matrix:")
+            print(accepted_class_metrics["confusion_matrix"])
+            
+            print(f"Rejected by class filter: {rejected_by_class_filter}")
+            print(f"Rejected by confidence: {rejected_by_confidence}")
+            print(f"Rejected by both: {rejected_by_both}")
         
         return {
             "total_samples": total_samples,
@@ -1620,7 +1620,7 @@ class Model:
     """
     @brief: Returns the DataLoader corresponding to the selected split
     """
-    def _get_loader(self, split):
+    def get_loader(self, split):
 
     
         loaders = {
@@ -1662,7 +1662,7 @@ class Model:
         return predicted_class, confidence, accepted
 
 
-    def _compute_classification_metrics_from_results(self, results, accepted_only=False):
+    def compute_classification_metrics_from_results(self, results, accepted_only=False):
         """
         @brief: Computes classification metrics from prediction results.
     
@@ -1764,7 +1764,7 @@ class Model:
         print("----------------------------------------------------------\n")
     
         if plot_confusion:
-            self._plot_confusion_matrix(cm=cm, title=f"Confusion matrix ({split})", save_path=save_path)
+            self.plot_confusion_matrix(cm=cm, title=f"Confusion matrix ({split})", save_path=save_path)
 
 
     """

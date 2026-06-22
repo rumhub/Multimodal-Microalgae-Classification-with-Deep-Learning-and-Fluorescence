@@ -180,8 +180,7 @@ def main():
     # =================== CLASS FILTER + CONFIDENCE THRESHOLD FILTERING ===================
     
     # Compute one confidence threshold for each predicted class using validation data
-    class_thresholds = model.compute_class_confidence_thresholds(split="val", 
-        min_accepted_ratio=0.97, debug=True, save_dir="../data_info/plots/results/Threshold_search")
+    class_thresholds = model.compute_class_confidence_thresholds(min_accepted_ratio=0.97, debug=True, save_dir="../data_info/plots/results/Threshold_search")
     
     print("Class confidence thresholds:")
     for class_idx, threshold in class_thresholds.items():
@@ -218,48 +217,18 @@ def main():
     print("------------------ FINAL RESULTS ------------------")
     
     if class_percentiles is None:
-        filtered_metrics = model.evaluate_with_confidence_filter(
+        model.evaluate_with_confidence_filter(
             split="test", class_thresholds=class_thresholds,
             plot_confusion=True,
             save_path="../data_info/plots/results/Confusion_matrix_test_accepted.png")
-    
-        print("\nTest results with confidence filter only:")
-    
     else:
-        filtered_metrics = model.evaluate_with_class_and_confidence_filter(
+        model.evaluate_with_class_and_confidence_filter(
             split="test",
             features=test_features,
             data_analysis=data_analysis,
-            class_thresholds=class_thresholds
+            class_thresholds=class_thresholds,
+            debug=1
         )
-    
-        print("\nTest results with class filter + confidence filter:")
-    
-    print(f"Total samples: {filtered_metrics['total_samples']}")
-    print(f"Accepted predictions: {filtered_metrics['num_accepted']}")
-    print(f"Rejected predictions: {filtered_metrics['num_rejected']}")
-    print(f"Coverage: {filtered_metrics['coverage']:.4f}")
-    
-    print("\nOriginal performance:")
-    print(f"Accuracy: {filtered_metrics['original_accuracy']:.4f}")
-    print(f"Macro F1: {filtered_metrics['original_macro_f1']:.4f}")
-    print(f"Weighted F1: {filtered_metrics['original_weighted_f1']:.4f}")
-    
-    print("\nPerformance on accepted predictions:")
-    print(f"Accepted accuracy: {filtered_metrics['accepted_accuracy']:.4f}")
-    print(f"Accepted macro F1: {filtered_metrics['accepted_macro_f1']:.4f}")
-    print(f"Accepted weighted F1: {filtered_metrics['accepted_weighted_f1']:.4f}")
-    
-    print("\nAccepted predictions classification report:")
-    print(filtered_metrics["accepted_classification_report"])
-    
-    print("Accepted predictions confusion matrix:")
-    print(filtered_metrics["accepted_confusion_matrix"])
-    
-    if class_percentiles is not None:
-        print(f"Rejected by class filter: {filtered_metrics['rejected_by_class_filter']}")
-        print(f"Rejected by confidence: {filtered_metrics['rejected_by_confidence']}")
-        print(f"Rejected by both: {filtered_metrics['rejected_by_both']}")
     
     data_analysis.plot_test_pipeline_flowchart(
         save_path="../data_info/plots/results/Test_pipeline.png",
