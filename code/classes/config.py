@@ -1,14 +1,14 @@
-# Prefix used for mapping the classes in this dataset
-CLASS_PREFIXES = {"CH" : 0, # Chlorella
-                "HA" : 1, # Haematococcus
-                "SC" : 2
-               }
-
 # Name of each class
 CLASS_NAMES = {"CH" : "Chlorella",
                 "HA" : "Haematococcus",
                 "SC" : "Scenedesmus"
                }
+
+# Prefix used for mapping the classes in this dataset
+CLASS_PREFIXES = {
+    class_prefix: class_idx
+    for class_idx, class_prefix in enumerate(CLASS_NAMES.keys())
+}
 
 # 7 Channels per microalga
 INITIAL_IMG_SUFFIXES = ["amp", "flr_1", "flr_2", "flr_3", "flu", "mask", "phase"]

@@ -1568,7 +1568,7 @@ class Model:
             print("\nOriginal performance:")
             print(f"Accuracy: {original_accuracy:.4f}")
             print(f"Macro F1: {original_class_metrics['macro_f1']:.4f}")
-            print(f"Weighted F1: {original_class_metrics['weighted_f1']:.4f}")
+            # print(f"Weighted F1: {original_class_metrics['weighted_f1']:.4f}")
             
             print("Original classification report:")
             print(original_class_metrics["classification_report"])
@@ -1581,7 +1581,7 @@ class Model:
             print("\nPerformance on accepted predictions:")
             print(f"Accepted accuracy: {accepted_accuracy:.4f}")
             print(f"Accepted macro F1: {accepted_class_metrics['macro_f1']:.4f}")
-            print(f"Accepted weighted F1: {accepted_class_metrics['weighted_f1']:.4f}")
+            # print(f"Accepted weighted F1: {accepted_class_metrics['weighted_f1']:.4f}")
             
             print("\nAccepted predictions classification report:")
             print(accepted_class_metrics["classification_report"])
@@ -1662,17 +1662,15 @@ class Model:
         return predicted_class, confidence, accepted
 
 
+    """
+    @brief: Computes classification metrics from prediction results
+
+    @param results: List of prediction result dictionaries
+    @param accepted_only: If True, metrics are computed only on accepted predictions
+
+    @return: Dictionary with classification metrics
+    """
     def compute_classification_metrics_from_results(self, results, accepted_only=False):
-        """
-        @brief: Computes classification metrics from prediction results.
-    
-        @param results: List of prediction result dictionaries
-        @param accepted_only: If True, metrics are computed only on accepted predictions
-    
-        @return: Dictionary with classification metrics
-        """
-    
-        from sklearn.metrics import classification_report, confusion_matrix, f1_score
     
         if accepted_only:
             results_to_evaluate = [

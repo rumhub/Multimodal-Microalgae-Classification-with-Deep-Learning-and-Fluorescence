@@ -31,7 +31,7 @@ def main():
 
     # If True, the CNN is trained from scratch and saved
     # If False, a previously saved model is loaded
-    TRAIN_MODEL = False
+    TRAIN_MODEL = True
     
     # Convert model path to a Path object
     model_path = Path(config.MODEL_PATH)
@@ -150,7 +150,7 @@ def main():
     
     if TRAIN_MODEL:
         # Train the model from scratch and plot training curves
-        model.train(num_epochs=300, learning_rate=1e-4, save_dir="../data_info/plots/training")
+        model.train(num_epochs=2, learning_rate=1e-4, save_dir="../data_info/plots/training")
         
         # Save the trained model weights
         model.save(config.MODEL_PATH)
@@ -240,7 +240,7 @@ def main():
     
     # =================== PREDICT EXTERNAL FOLDER ===================
 
-    PREDICT_FOLDER = True
+    PREDICT_FOLDER = False
     PREDICT_FOLDER_PATH = "../../otros_datos/Scenedesmus"
     
     if PREDICT_FOLDER:
